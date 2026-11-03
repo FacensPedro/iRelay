@@ -37,9 +37,17 @@ function games(store) {
     const title = store === 'steam' ? game.name : game.title;
     const cover = store === 'steam' ? steamArt(game.appId) : game.cover;
     return { store, id, title, cover, hero: store === 'steam' ? steamArt(game.appId, 'hero') : game.cover,
-      onIPad: game.installed, download: download && download.phase !== 'failed' ? download : null,
+      onIPad: game.installed, update: !!game.update, size: game.size || 0, download: download && download.phase !== 'failed' ? download : null,
       failed: download && download.error ? download.error : null, raw: game };
   }).sort((a, b) => a.title.localeCompare(b.title));
+}
+
+function bytes(n) {
+  if (!n) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(i >= 3 ? 2 : i ? 1 : 0)} ${units[i]}`;
 }
 
 function percent(item) {
@@ -271,7 +279,11 @@ function renderDrawer() {
     actions = `<div class="task" style="margin:0"><div class="task-meta">${esc(game.download.phase)} · ${percent(game.download)}%</div>
       <div class="bar"><span class="sent" style="width:${percent(game.download)}%"></span></div></div>`;
   } else {
-    actions = `<button class="primary" data-action="install">${game.onIPad ? 'Update on device' : 'Install on device'}</button>`;
+    if (!game.onIPad) actions = '<button class="primary" data-action="install">Install on device</button>';
+    else {
+      actions = (game.update ? '<button class="primary" data-action="install">Update on device</button>' : '')
+        + '<button class="secondary" data-action="uninstall">Uninstall</button>';
+    }
   }
   const queued = (state.dlcQueue || {})[game.id] || [];
   let dlc = '';
@@ -279,14 +291,14 @@ function renderDrawer() {
     const list = game.raw.dlc || [];
     dlc = '<div class="section-title">DLC</div>' + (list.length ? list.map((item) => {
       let control;
-      if (item.installed) control = '<button class="secondary" disabled>Installed</button>';
+      if (item.installed) control = `<button class="secondary" data-undlc="${item.appId}" ${game.download ? 'disabled' : ''}>Uninstall</button>`;
       else if (queued.includes(item.appId)) control = '<button class="secondary" disabled>Queued</button>';
       else if (!game.onIPad) {
         // Chosen DLC install right after the game.
         control = `<label class="dlc-pick"><input type="checkbox" data-pick="${item.appId}" ${picked.has(item.appId) ? 'checked' : ''}> With the game</label>`;
       } else control = `<button class="secondary" data-dlc="${item.appId}" ${game.download ? 'disabled' : ''}>Install</button>`;
       return `<div class="dlc"><img src="${esc(steamArt(item.appId, 'header'))}" alt="" loading="lazy">
-        <div class="dlc-name"><div>${esc(item.name)}</div><div class="muted small">${item.installed ? 'On device' : 'Not installed'}</div></div>
+        <div class="dlc-name"><div>${esc(item.name)}</div><div class="muted small">${item.installed ? 'On device' : 'Not installed'}${item.size ? ` · ${bytes(item.size)}` : ''}</div></div>
         ${control}</div>`;
     }).join('')
       : '<div class="note">No DLC loaded. <button class="link" data-action="load-dlc">Load DLC</button></div>');
@@ -295,7 +307,8 @@ function renderDrawer() {
     <button class="drawer-close" data-action="close">✕</button>
     <div class="drawer-body"><h2>${esc(game.title)}</h2><div class="muted">${esc(store)}</div>
       <div class="status-row">
-        <div class="status"><div class="label">Device</div><div class="value ${game.onIPad ? 'yes' : ''}">${game.onIPad ? 'Installed' : 'Not installed'}</div></div>
+        <div class="status"><div class="label">Device</div><div class="value ${game.onIPad ? 'yes' : ''}">${game.onIPad ? (game.update ? 'Update available' : 'Installed') : 'Not installed'}</div></div>
+        ${game.size ? `<div class="status"><div class="label">Size</div><div class="value">${bytes(game.size)}</div></div>` : ''}
       </div>
       <div class="actions">${actions}</div>
       <div class="note">${game.store === 'steam' ? 'This PC downloads and unpacks the game and writes it straight into iDeck. Nothing is installed on Windows.' : 'iDeck downloads the game. Nothing is installed on Windows.'}</div>
@@ -332,6 +345,14 @@ async function act(action, extra = {}) {
     if (action === 'load-dlc') { await irelay.steamDLC(game.id); return; }
     if (action === 'install') await irelay.install({ ...request(game), withDLC: game.store === 'steam' && !game.onIPad ? [...picked] : [] });
     if (action === 'dlc') await irelay.install({ ...request(game), dlcId: extra.dlc });
+    if (action === 'uninstall' || action === 'undlc') {
+      if (!confirm(action === 'undlc' ? 'Remove this DLC from the device?' : `Remove ${game.title} from the device?`)) return;
+      await irelay.uninstall({ ...request(game), dlcId: extra.dlc });
+      drawerKey = '';
+      lastGrid = '';
+      render();
+      return;
+    }
     view = 'tasks';
     document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
     selected = null;
@@ -385,7 +406,9 @@ $('drawer').addEventListener('click', (event) => {
   const pick = event.target.closest('[data-pick]');
   if (pick) { const id = Number(pick.dataset.pick); if (pick.checked) picked.add(id); else picked.delete(id); return; }
   const dlc = event.target.closest('[data-dlc]');
-  if (dlc) act('dlc', { dlc: Number(dlc.dataset.dlc) });
+  if (dlc) { act('dlc', { dlc: Number(dlc.dataset.dlc) }); return; }
+  const undlc = event.target.closest('[data-undlc]');
+  if (undlc) act('undlc', { dlc: Number(undlc.dataset.undlc) });
 });
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && selected) { selected = null; render(); } });
 
