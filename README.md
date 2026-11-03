@@ -8,7 +8,7 @@ iRelay is a Windows companion for [iDeck](https://github.com/FacensPedro/iDeck).
 - **Install on device:** choose a game, and tick any of its Steam DLC to install right after it, or add DLC to a game already on the device. iDeck starts the download.
 - **Steam processed on the PC:** for Steam games, this PC downloads every chunk from Steam's content servers, decrypts, decompresses and verifies it, and writes it into the game's files on the device. iDeck checks each chunk again and fetches anything that failed itself. Chunks stay in memory; nothing is written on the PC.
 - **Epic Games and GOG:** iDeck downloads these itself.
-- **Bugs:** **iRelay bugs** lists this run's problems. **iDeck bugs** reads the ones iDeck found on the device.
+- **Bugs:** **iRelay bugs** lists this run's problems. **iDeck bugs** reads the ones iDeck found on the device. **Clear** empties either log.
 - **Updates:** iRelay updates itself at start, or from **Update iRelay**, without running the installer again.
 - **Folders:** **About** opens iRelay's data folder (log, updates, settings) and its program folder.
 
@@ -52,7 +52,7 @@ Defender can still check the installer itself before it runs. Code signing remov
 
 iRelay updates itself when it starts. **Update iRelay**, in the sidebar or in About, checks and updates at any time. Neither needs an installer: the new version is downloaded, verified and loaded on restart.
 
-For a private repository, add a GitHub token (fine-grained, *Contents: Read-only* on this repository) under **About › GitHub token**. Windows encrypts the token and keeps it on this PC only.
+Updates need this repository to be public: GitHub does not publish a private repository's releases to programs.
 
 ## Building
 

@@ -23,7 +23,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   const state = {
     version: VERSION,
     boot: 'Starting…',
-    update: { busy: false, message: '', hasToken: false },
+    update: { busy: false, message: '' },
     ready: false,
     cable: { status: 'searching', message: 'Looking for a connected device…', device: null },
     devices: [],
@@ -243,6 +243,16 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     for (const item of state.installs) if (item.error) issues.unshift(`${item.title}: ${item.error}`);
     return { issues, log: lines.slice(-300).join('\n') };
   });
+  // Clear: iRelay's log (this run's lines start again) and iDeck's logs on the device.
+  ipcMain.handle('clearIrelayBugs', () => {
+    try { fs.writeFileSync(path.join(app.getPath('userData'), 'irelay.log'), ''); } catch { /* none */ }
+    global.irelayLogOffset = 0;
+    state.installs = state.installs.filter((item) => !item.error);
+  });
+  ipcMain.handle('clearIdeckBugs', async () => {
+    if (!deviceId) throw new Error('Connect a device with iDeck first.');
+    await device.clearLogs(deviceId);
+  });
   ipcMain.handle('ideckBugs', async () => {
     if (!deviceId) throw new Error('Connect a device with iDeck first.');
     return device.logs(deviceId);
@@ -272,11 +282,6 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     }
     push();
   });
-  ipcMain.handle('setToken', (_, token) => {
-    updater.setToken(token);
-    state.update = { ...state.update, hasToken: !!updater.getToken(), message: token ? 'Token saved.' : 'Token removed.' };
-    push();
-  });
 
 
   // MARK: Start
@@ -301,7 +306,6 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
       }
     }
     // Not 'cache': on Windows that is Chromium's own Cache folder (names ignore case).
-    state.update.hasToken = !!updater.getToken();
     processor = new Processor({
       write: (root, file, offset, size, sha, data) => {
         if (!deviceId) return Promise.reject(new Error('device not connected'));
@@ -312,6 +316,8 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     });
     relay = new Relay(processor, log);
     try { relay.start(); } catch (error) { log(`relay not started: ${error.message}`); }
+    // A GitHub token saved by iRelay 2.3-3.2 is no longer used: removed.
+    try { fs.unlinkSync(path.join(app.getPath('userData'), 'github-token.bin')); } catch { /* none */ }
     state.ready = true;
     state.boot = '';
     every(2000, pollCable);

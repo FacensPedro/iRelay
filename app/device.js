@@ -72,6 +72,7 @@ module.exports = {
   installs: (id) => request(id, 'GET', '/installs', { timeout: 10000 }),
   write: (id, root, relative, offset, size, sha, data) =>
     request(id, 'PUT', `/write?${query({ root, path: relative, offset, size, sha })}`, { data, timeout: 120000 }),
+  clearLogs: (id) => request(id, 'DELETE', '/logs', { timeout: 15000 }),
   logs: (id) => request(id, 'GET', '/logs', { timeout: 30000 }),
   library: (id) => request(id, 'GET', '/library', { timeout: 120000 }),
   steamDLC: (id, appId) => request(id, 'POST', `/steam/dlc?app=${appId}`, { json: {}, timeout: 120000 }),

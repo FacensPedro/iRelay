@@ -10,8 +10,9 @@ contextBridge.exposeInMainWorld('irelay', {
   install: (request) => ipcRenderer.invoke('install', request),
   selectDevice: (udid) => ipcRenderer.invoke('selectDevice', udid),
   irelayBugs: () => ipcRenderer.invoke('irelayBugs'),
+  clearIrelayBugs: () => ipcRenderer.invoke('clearIrelayBugs'),
+  clearIdeckBugs: () => ipcRenderer.invoke('clearIdeckBugs'),
   ideckBugs: () => ipcRenderer.invoke('ideckBugs'),
   openFolder: (which) => ipcRenderer.invoke('openFolder', which),
   checkUpdate: () => ipcRenderer.invoke('checkUpdate'),
-  setToken: (token) => ipcRenderer.invoke('setToken', token),
 });
