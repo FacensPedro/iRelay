@@ -228,6 +228,19 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     }
     setTimeout(pollInstalls, 500);
   });
+  // Uninstall removes the game (or one DLC) from iDeck's drive.
+  ipcMain.handle('uninstall', async (_, request) => {
+    if (!deviceId) throw new Error('Connect a device with iDeck first.');
+    const body = { store: request.store };
+    if (request.store === 'steam') {
+      body.appId = Number(request.appId);
+      if (request.dlcId) body.dlcId = Number(request.dlcId);
+    } else if (request.store === 'gog') body.id = Number(request.id);
+    else body.appName = request.appName;
+    await device.uninstall(deviceId, body);
+    log(`uninstalled from the device: ${request.title || body.appId || body.id || body.appName}${body.dlcId ? ` (DLC ${body.dlcId})` : ''}`);
+    await refreshLibrary();
+  });
   // Bugs: iRelay's own log, and iDeck's (read from the device over the cable).
   const clearedErrors = new Set();
   ipcMain.handle('irelayBugs', () => {
