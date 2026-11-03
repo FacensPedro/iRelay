@@ -56,7 +56,7 @@ For a private repository, add a GitHub token (fine-grained, *Contents: Read-only
 
 ## Building
 
-Requires Node.js 20.
+Requires Node.js 24.
 
 ```
 npm ci

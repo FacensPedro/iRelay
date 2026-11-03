@@ -1,14 +1,14 @@
 {
   "name": "irelay",
   "productName": "iRelay",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Install Steam, GOG and Epic games on a Windows PC and copy them to iDeck over USB.",
   "main": "shell/main.js",
   "author": "FacensPedro",
   "license": "MIT",
   "private": true,
   "engines": {
-    "node": ">=20 <21"
+    "node": ">=24 <25"
   },
   "scripts": {
     "start": "electron .",
@@ -18,7 +18,7 @@
   "devDependencies": {
     "@electron/asar": "3.2.17",
     "@electron/packager": "18.3.6",
-    "electron": "31.7.7",
+    "electron": "42.11.13",
     "electron-builder": "^24.13.3"
   },
   "build": {
