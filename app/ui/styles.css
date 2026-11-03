@@ -209,3 +209,12 @@ button:disabled { opacity: 0.45; cursor: default; }
 .bugs-bar { display: flex; gap: 8px; margin-bottom: 12px; }
 .logtail { white-space: pre-wrap; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
   font: 11px/1.5 Consolas, monospace; color: var(--muted); max-height: 420px; overflow: auto; user-select: text; }
+
+.sidebar { gap: 10px; }
+.update-button { margin-top: auto; display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px;
+  border-radius: 9px; border: 1px solid var(--line-strong); background: var(--card); color: var(--text); text-align: left; }
+.update-button:hover { border-color: #3a3a42; }
+.update-button:disabled { opacity: 0.6; }
+.update-note { color: var(--muted); font-size: 12px; margin-top: 6px; }
+.token-row { display: flex; gap: 8px; margin-top: 12px; }
+.token-row input { flex: 1; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }

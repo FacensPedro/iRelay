@@ -1,74 +1,61 @@
 # iRelay
 
-iRelay is a Windows companion for [iDeck](https://github.com/FacensPedro/iDeck). It installs your **Steam**, **Epic Games** and **GOG** games on your PC with their own launchers and copies them into iDeck on the connected device (iPad or iPhone) over a **USB cable**.
+iRelay is a Windows companion for [iDeck](https://github.com/FacensPedro/iDeck). Connect your device with a **USB cable** and pick a Steam, Epic Games or GOG game. It goes straight into iDeck. Nothing is installed on Windows.
 
 ## Features
 
-- **Your libraries:** iRelay shows the Steam, Epic Games and GOG libraries iDeck is signed in to, and marks which games are on the PC and which are on the connected device.
-- **Install and copy:** choose a game and iRelay installs it on the PC with Steam, the Epic Games Launcher or GOG Galaxy. When the install finishes, iRelay copies it into the right iDeck folder, and the game shows up in iDeck as installed.
-- **DLC:** for Steam games that are already installed on the PC, you can install a DLC and copy just its files to the device.
-- **Updates:** copying a game that is already on the device sends only the files that changed. Files that exist only on the device, such as saves and settings, are never deleted.
-- **Frees the PC:** once a game is on the device, iRelay deletes its files and install record from the PC.
-- **Bugs:** **iRelay bugs** lists problems from iRelay's log. **iDeck bugs** reads the problems iDeck found on the connected device.
-- **Download relay:** when you start a Steam download in iDeck itself, the PC downloads the same pieces at its own speed. The device takes each piece over the cable as soon as it arrives.
-- **Automatic updates:** each time it starts, iRelay checks GitHub Releases and switches to the newest version. You never need to run an installer. This needs the repository to be public, because GitHub hides a private repository's releases.
+- **Your libraries:** iRelay shows the Steam, Epic Games and GOG libraries iDeck is signed in to, and marks what is already on the device.
+- **Install on device:** choose a game, or a DLC of a Steam game already on the device, and iDeck starts the download.
+- **Steam processed on the PC:** for Steam games, this PC downloads every chunk from Steam's content servers, decrypts, decompresses and verifies it, and writes it into the game's files on the device. iDeck checks each chunk again and fetches anything that failed itself. Chunks stay in memory; nothing is written on the PC.
+- **Epic Games and GOG:** iDeck downloads these itself.
+- **Bugs:** **iRelay bugs** lists this run's problems. **iDeck bugs** reads the ones iDeck found on the device.
+- **Updates:** iRelay updates itself at start, or from **Update iRelay**, without an installer.
 
 ## Requirements
 
 - Windows 10 or 11 (64-bit).
-- The **Steam client running** on the PC. iRelay waits until Steam is open.
-- The **Apple Devices** app (Microsoft Store) or **iTunes**. iRelay uses Apple's device service to reach the device over USB, the same requirement as [iloader](https://github.com/nab138/iloader).
-- **Epic Games Launcher** for Epic games and **GOG Galaxy** for GOG games.
-- iDeck with **Settings › iRelay** turned on.
+- **iTunes** or the **Apple Devices** app. iRelay reaches the device over USB through Apple's device service, the same way [iloader](https://github.com/nab138/iloader) does.
+- iDeck on the device, open. It connects by itself; there is nothing to turn on.
 
 ## Getting started
 
-1. Download `iRelay-<version>-win-x64.zip` from [Releases](../../releases) and take `iRelay.exe` out of it. It is the whole program, so you can keep it anywhere.
-2. Start Steam, then run `iRelay.exe`.
-3. Connect the device with a USB cable, unlock it and tap **Trust**. If several devices are connected, choose one under **Connected device**.
-4. In iDeck, open **Settings › iRelay** and turn on **Use iRelay (USB cable)**.
-5. In iRelay, pick a game and choose **Install and copy to device**.
+1. Download `iRelay-<version>-win-x64.zip` from [Releases](../../releases) and take `iRelay.exe` out of it. That one file is the whole program.
+2. Run `iRelay.exe`.
+3. Connect the device with a USB cable, unlock it, tap **Trust** and open iDeck.
+4. Pick a game and choose **Install on device**.
 
-Keep iDeck open on the device while a copy is running, because iOS and iPadOS pause apps in the background.
+Keep iDeck open while a game downloads, because iOS and iPadOS pause apps in the background.
 
 ## How it works
 
 iRelay connects the way [iloader](https://github.com/nab138/iloader) does (through the [idevice](https://github.com/jkcoxson/idevice) crate):
 
-1. **usbmuxd:** Apple's device service (`127.0.0.1:27015`, from iTunes or the Apple Devices app) lists the devices connected by USB.
-2. **Pair record:** usbmuxd's pair record shows whether the device trusts this PC.
-3. **lockdownd:** port 62078 on the device returns its name, model and iOS version, which appear under **Connected device**.
-4. **iDeck:** the connection then goes to the ports where iDeck listens on the device.
-
-iOS doesn't allow apps to open network connections over USB, so iRelay starts every connection itself. The device's ports can be reached only from a PC that the device trusts.
+1. **usbmuxd** lists the devices connected by USB.
+2. **The pair record** shows whether the device trusts this PC.
+3. **lockdownd** gives the device's name, model and iOS version.
+4. **iDeck's ports:** iRelay connects to the ports where iDeck listens.
 
 | Device port | Purpose |
 |---|---|
 | 62078 | lockdownd: device name, model and iOS version |
-| 27093 | iDeck's service: libraries, file listings, file uploads and install records |
-| 27091 | Connections iDeck uses to fetch download pieces from iRelay's local server (`127.0.0.1:27090`) |
-
-Games are copied into the folders iDeck uses for each store, inside its Windows drive (`drive_c`):
-
-| Store | Folder in iDeck | Install record |
-|---|---|---|
-| Steam | `Program Files (x86)/Steam/steamapps/common/<installdir>` | `appmanifest_<appid>.acf`, plus DLC records |
-| Epic Games | `Program Files/Epic Games/<folder>` | iDeck's Epic install record |
-| GOG | `GOG Games/<folder>` | The game's `goggame-<id>.info` |
-
-## Troubleshooting
-
-If iRelay doesn't open, check `%APPDATA%\iRelay\irelay.log`, where iRelay records each start and any error. Start errors are also shown in a dialog.
+| 27093 | iDeck's service: libraries, starting installs, writing chunks (`PUT /write`), logs |
+| 27091 | Connections iDeck uses to reach iRelay's local server (`127.0.0.1:27090`): `POST /process` hands over a Steam download |
 
 ## Antivirus
 
-iRelay is built so that Microsoft Defender has nothing suspicious to flag:
+iRelay keeps clear of the behaviour antivirus programs look for. It changes no system settings, adds no exclusions, runs no hidden scripts and asks for no administrator rights. It runs no other programs and installs nothing. Updates come only from this repository's releases and are checked against a SHA-256 checksum.
 
-- **Unmodified Electron:** it is a standard Electron app (Node.js 20) packed into one portable `iRelay.exe` by electron-builder, with no installer.
-- **Visible behaviour:** it changes no system settings, adds no antivirus exclusions and runs no hidden scripts. It only reads Steam's, Epic's and GOG's install records and the registry keys that point to them (`reg query`), and checks whether Steam is running (`tasklist`).
-- **Verified updates:** updates are downloaded only from this repository's releases and checked against a SHA-256 checksum before use.
+An unsigned program is still unknown to Microsoft, so:
 
-If SmartScreen warns about an unknown publisher, choose **More info › Run anyway**. Builds are not code-signed yet.
+- **Code signing removes the warnings.** Add the repository secrets `WIN_CSC_LINK` (the base64 of a code-signing `.pfx`) and `WIN_CSC_KEY_PASSWORD`, and every build is signed. Azure Trusted Signing works too, and SignPath signs open-source projects for free.
+- **Report a false positive.** If Microsoft Defender flags a release, submit `iRelay.exe` at <https://www.microsoft.com/wdsi/filesubmission> as a "Software developer" with "Incorrectly detected as malware". Microsoft clears the file, usually within a few days.
+- **SmartScreen warning.** If SmartScreen warns about an unknown publisher, choose **More info › Run anyway**.
+
+## Updating
+
+iRelay updates itself when it starts. **Update iRelay**, in the sidebar or in About, checks and updates at any time. Neither needs an installer: the new version is downloaded, verified and loaded on restart.
+
+For a private repository, add a GitHub token (fine-grained, *Contents: Read-only* on this repository) under **About › GitHub token**. Windows encrypts the token and keeps it on this PC only.
 
 ## Building
 

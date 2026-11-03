@@ -20,7 +20,19 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - run: npm run build
+      # Signed builds (repository secrets WIN_CSC_LINK = base64 .pfx and
+      # WIN_CSC_KEY_PASSWORD): a code-signing certificate is what keeps Microsoft
+      # Defender and SmartScreen from treating iRelay.exe as unknown. Without the
+      # secrets the build is unsigned.
+      - name: Build
+        shell: bash
+        # Not WIN_CSC_LINK: electron-builder reads that name itself, even empty.
+        env:
+          SIGN_PFX: ${{ secrets.WIN_CSC_LINK }}
+          SIGN_PFX_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          if [ -n "$SIGN_PFX" ]; then export CSC_LINK="$SIGN_PFX" CSC_KEY_PASSWORD="$SIGN_PFX_PASSWORD"; else export CSC_IDENTITY_AUTO_DISCOVERY=false; fi
+          npm run build
       # Starts the built iRelay.exe on Windows and fails when it does not open.
       - name: Start test
         shell: pwsh

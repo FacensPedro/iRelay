@@ -31,26 +31,19 @@ function steamArt(id, kind) {
 function games(store) {
   const library = state && state.library && state.library[store];
   const list = (library && library.games) || [];
-  const pc = (state && state.pc[store]) || {};
   return list.map((game) => {
-    if (store === 'steam') {
-      const local = pc[game.appId];
-      return { store, id: game.appId, title: game.name, cover: steamArt(game.appId), hero: steamArt(game.appId, 'hero'),
-        onPC: !!(local && local.complete), installingPC: !!(local && !local.complete), onIPad: game.installed, raw: game, local };
-    }
-    if (store === 'epic') {
-      const local = pc[game.appName];
-      return { store, id: game.appName, title: game.title, cover: game.cover, hero: game.cover,
-        onPC: !!(local && local.complete), installingPC: !!(local && !local.complete), onIPad: game.installed, raw: game, local };
-    }
-    const local = pc[game.id];
-    return { store, id: game.id, title: game.title, cover: game.cover, hero: game.cover,
-      onPC: !!local, installingPC: false, onIPad: game.installed, raw: game, local };
+    const id = store === 'steam' ? game.appId : store === 'epic' ? game.appName : game.id;
+    const download = (state.installs || []).find((item) => item.store === store && String(item.id) === String(id));
+    const title = store === 'steam' ? game.name : game.title;
+    const cover = store === 'steam' ? steamArt(game.appId) : game.cover;
+    return { store, id, title, cover, hero: store === 'steam' ? steamArt(game.appId, 'hero') : game.cover,
+      onIPad: game.installed, download: download && download.phase !== 'failed' ? download : null,
+      failed: download && download.error ? download.error : null, raw: game };
   }).sort((a, b) => a.title.localeCompare(b.title));
 }
 
-function busy(store, id) {
-  return (state.tasks || []).some((task) => !task.finished && task.store === store && task.title && task.ref === `${store}:${id}`);
+function percent(item) {
+  return item && item.total ? Math.min(100, Math.round(100 * item.done / item.total)) : 0;
 }
 
 // MARK: Rendering
@@ -59,12 +52,13 @@ function render() {
   if (!state) return;
   $('version').textContent = `v${state.version}`;
   renderDevice();
+  renderUpdate();
   renderGate();
   for (const store of ['steam', 'epic', 'gog']) {
     const count = games(store).length;
     $(`count-${store}`).textContent = count ? count : '';
   }
-  const active = (state.tasks || []).filter((task) => !task.finished).length + (state.relay || []).filter((job) => job.sent < job.total).length;
+  const active = (state.installs || []).filter((item) => !item.error).length + (state.jobs || []).filter((job) => !job.finished).length;
   $('count-tasks').textContent = active ? active : '';
   $('view-title').textContent = TITLES[view];
   const library = ['steam', 'epic', 'gog'].includes(view);
@@ -80,6 +74,13 @@ function render() {
   else if (view.startsWith('bugs-')) renderBugs();
   else renderAbout();
   renderDrawer();
+}
+
+function renderUpdate() {
+  const update = state.update || {};
+  $('update-button').disabled = !!update.busy || !state.ready;
+  $('update-text').textContent = update.busy ? (update.message || 'Updating…') : 'Update iRelay';
+  $('update-button').title = update.message || '';
 }
 
 function renderDevice() {
@@ -109,7 +110,7 @@ function renderGate() {
     gate.querySelector('.gate-icon').innerHTML = '<div class="spinner"></div>';
     return;
   }
-  if (state.steamRunning === false) {
+  if (false) {
     gate.classList.remove('hidden');
     $('gate-title').textContent = 'Steam is not running';
     $('gate-text').textContent = 'iRelay installs games through the Steam client on this PC. Open Steam and sign in; iRelay continues automatically.';
@@ -140,7 +141,7 @@ function renderLibrary() {
     return;
   }
   let list = games(store);
-  if (filter === 'pc') list = list.filter((game) => game.onPC || game.installingPC);
+  if (filter === 'pc') list = list.filter((game) => game.download);
   if (filter === 'ipad') list = list.filter((game) => game.onIPad);
   if (query) list = list.filter((game) => game.title.toLowerCase().includes(query));
   if (!list.length) {
@@ -149,9 +150,8 @@ function renderLibrary() {
   }
   const html = `<div class="grid">${list.map((game) => {
     const meta = [
-      game.onPC ? '<span class="pc">PC</span>' : '',
-      game.installingPC ? '<span class="busy">Installing</span>' : '',
-      game.onIPad ? '<span class="ipad">Device</span>' : '',
+      game.download ? `<span class="busy">Installing ${percent(game.download)}%</span>` : '',
+      game.onIPad && !game.download ? '<span class="ipad">Device</span>' : '',
     ].join('');
     return `<button class="card" data-store="${store}" data-id="${esc(game.id)}">
       <div class="cover">${game.cover ? `<img src="${esc(game.cover)}" loading="lazy" alt="">` : ''}</div>
@@ -169,40 +169,42 @@ function setContent(html) {
   });
 }
 
-function taskHTML(task) {
-  const fraction = task.total ? Math.min(1, task.done / task.total) : (task.finished && !task.error ? 1 : 0);
-  const meta = task.error ? `<span class="error">${esc(task.error)}</span>`
-    : task.total > 1 ? `${esc(task.phase)} · ${size(task.done)} of ${size(task.total)}${task.fileCount ? ` · ${task.files || 0}/${task.fileCount} files` : ''}`
-      : esc(task.phase);
-  return `<div class="task"><div class="task-head"><div><div class="task-title">${esc(task.title)}</div>
-    <div class="task-meta">${meta}</div></div>
-    ${task.finished ? '' : `<button class="link" data-cancel="${esc(task.id)}">Cancel</button>`}</div>
-    <div class="bar"><span ${task.error ? '' : 'class="sent"'} style="width:${(fraction * 100).toFixed(1)}%"></span></div></div>`;
-}
-
 function renderTasks() {
-  const tasks = state.tasks || [];
-  const relay = state.relay || [];
-  if (!tasks.length && !relay.length) {
-    setContent(emptyState('No transfers yet', 'Installs on this PC and copies to the connected device appear here.'));
+  const installs = state.installs || [];
+  const jobs = state.jobs || [];
+  if (!installs.length && !jobs.length) {
+    setContent(emptyState('No transfers yet', 'Downloads to the connected device appear here.'));
     return;
   }
-  const relayHTML = relay.map((job) => `<div class="task"><div class="task-head"><div><div class="task-title">${esc(job.name)}</div>
-    <div class="task-meta">Download started in iDeck · ${Math.round(100 * job.downloaded / Math.max(1, job.total))}% on this PC · ${Math.round(100 * job.sent / Math.max(1, job.total))}% on device · ${size(job.bytes)}${job.failed ? ` · ${job.failed} failed` : ''}</div></div></div>
-    <div class="bar"><span style="width:${(100 * job.downloaded / Math.max(1, job.total)).toFixed(1)}%"></span><span class="sent" style="width:${(100 * job.sent / Math.max(1, job.total)).toFixed(1)}%"></span></div></div>`).join('');
-  setContent(`<div class="tasks">${tasks.map(taskHTML).join('')}${relayHTML}</div>`);
+  const installHTML = installs.map((item) => `<div class="task"><div class="task-head"><div><div class="task-title">${esc(item.title)}</div>
+    <div class="task-meta">${item.error ? `<span class="error">${esc(item.error)}</span>` : `${esc(TITLES[item.store] || item.store)} · ${esc(item.phase)} · ${percent(item)}%`}</div></div></div>
+    <div class="bar"><span class="sent" style="width:${percent(item)}%"></span></div></div>`).join('');
+  const jobHTML = jobs.map((job) => {
+    const done = Math.round(100 * job.done / Math.max(1, job.total));
+    const speed = job.seconds > 0 ? job.bytes / job.seconds : 0;
+    return `<div class="task"><div class="task-head"><div><div class="task-title">${esc(job.name)}</div>
+      <div class="task-meta">Processed on this PC · ${done}% · ${size(job.bytes)} of ${size(job.totalBytes)}${job.finished ? '' : ` · ${size(speed)}/s`}${job.failed ? ` · ${job.failed} left to iDeck` : ''}</div></div></div>
+      <div class="bar"><span style="width:${done}%"></span></div></div>`;
+  }).join('');
+  setContent(`<div class="tasks">${installHTML}${jobHTML}</div>`);
 }
 
 function renderAbout() {
+  const update = state.update || {};
   setContent(`<div class="about">
     <div class="panel"><h3>iRelay ${esc(state.version)}</h3><p>${esc(state.cable.message)}</p>
-      <div class="bugs-bar" style="margin:12px 0 0"><button class="secondary" id="clear-cache">Clear cache</button>
-      <button class="secondary" id="source">GitHub</button></div></div>
+      <div class="bugs-bar" style="margin:12px 0 0"><button class="primary" id="about-update" ${update.busy ? 'disabled' : ''}>Update iRelay</button>
+      <button class="secondary" id="source">GitHub</button></div>
+      ${update.message ? `<div class="update-note">${esc(update.message)}</div>` : ''}</div>
+    <div class="panel"><h3>GitHub token</h3><p>${update.hasToken ? 'Saved.' : 'Only for a private repository.'}</p>
+      <div class="token-row"><input id="token" type="password" placeholder="github_pat_…" autocomplete="off">
+      <button class="secondary" id="save-token">Save</button>${update.hasToken ? '<button class="secondary" id="remove-token">Remove</button>' : ''}</div></div>
   </div>`);
-  const clear = $('clear-cache');
-  if (clear) clear.onclick = () => irelay.clearCache();
-  const source = $('source');
-  if (source) source.onclick = () => irelay.openExternal('https://github.com/FacensPedro/iRelay');
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  on('about-update', () => irelay.checkUpdate());
+  on('source', () => irelay.openExternal('https://github.com/FacensPedro/iRelay'));
+  on('save-token', () => { const value = $('token').value.trim(); if (value) irelay.setToken(value); });
+  on('remove-token', () => irelay.setToken(''));
 }
 
 // MARK: Bugs
@@ -240,42 +242,34 @@ function renderDrawer() {
   if (!selected) { drawer.classList.add('hidden'); drawerKey = ''; return; }
   const game = games(selected.store).find((item) => String(item.id) === String(selected.id));
   if (!game) { drawer.classList.add('hidden'); return; }
-  const task = (state.tasks || []).find((item) => !item.finished && item.ref === `${game.store}:${game.id}`);
   const store = TITLES[game.store];
-  const pcText = game.onPC ? 'Installed' : game.installingPC ? `Installing${game.local && game.local.progress ? ` · ${Math.round(game.local.progress * 100)}%` : ''}` : 'Not installed';
-  const launcher = game.store === 'steam' ? 'Steam' : game.store === 'epic' ? 'the Epic Games Launcher' : 'GOG Galaxy';
-  let actions = '';
-  if (task) {
-    actions = `<div class="task" style="margin:0">${taskHTML(task).replace(/^<div class="task">|<\/div>$/g, '')}</div>`;
-  } else if (game.onPC) {
-    actions = `<button class="primary" data-action="send">${game.onIPad ? 'Update on device' : 'Copy to device'}</button>`;
+  let actions;
+  if (game.download) {
+    actions = `<div class="task" style="margin:0"><div class="task-meta">${esc(game.download.phase)} · ${percent(game.download)}%</div>
+      <div class="bar"><span class="sent" style="width:${percent(game.download)}%"></span></div></div>`;
   } else {
-    actions = `<button class="primary" data-action="install-send">Install and copy to device</button>
-      <button class="secondary" data-action="install">Install on this PC only</button>`;
+    actions = `<button class="primary" data-action="install">${game.onIPad ? 'Update on device' : 'Install on device'}</button>`;
   }
   let dlc = '';
   if (game.store === 'steam') {
     const list = game.raw.dlc || [];
-    const local = game.local || { dlc: [] };
-    dlc = `<div class="section-title">DLC</div>` + (list.length ? list.map((item) => {
-      const onPC = (local.dlc || []).includes(item.appId);
-      const label = item.installed ? 'On device' : onPC ? 'Copy to device' : 'Install';
-      const disabled = item.installed || !game.onPC ? 'disabled' : '';
+    dlc = '<div class="section-title">DLC</div>' + (list.length ? list.map((item) => {
+      const disabled = item.installed || !game.onIPad || game.download ? 'disabled' : '';
       return `<div class="dlc"><img src="${esc(steamArt(item.appId, 'header'))}" alt="" loading="lazy">
-        <div class="dlc-name"><div>${esc(item.name)}</div><div class="muted small">${onPC ? 'On this PC' : 'Not on this PC'}${item.installed ? ' · On device' : ''}</div></div>
-        <button class="secondary" data-dlc="${item.appId}" ${disabled}>${label}</button></div>`;
-    }).join('') + (game.onPC ? '' : '<div class="note">Install the game on this PC to add its DLC.</div>')
-      : `<div class="note">No DLC loaded. <button class="link" data-action="load-dlc">Load DLC</button></div>`);
+        <div class="dlc-name"><div>${esc(item.name)}</div><div class="muted small">${item.installed ? 'On device' : 'Not installed'}</div></div>
+        <button class="secondary" data-dlc="${item.appId}" ${disabled}>${item.installed ? 'Installed' : 'Install'}</button></div>`;
+    }).join('') + (game.onIPad ? '' : '<div class="note">Install the game first to add its DLC.</div>')
+      : '<div class="note">No DLC loaded. <button class="link" data-action="load-dlc">Load DLC</button></div>');
   }
   const html = `<div class="hero" style="background-image:url('${esc(game.hero || '')}')"></div>
     <button class="drawer-close" data-action="close">✕</button>
     <div class="drawer-body"><h2>${esc(game.title)}</h2><div class="muted">${esc(store)}</div>
       <div class="status-row">
-        <div class="status"><div class="label">This PC</div><div class="value ${game.onPC ? 'yes' : ''}">${esc(pcText)}</div></div>
         <div class="status"><div class="label">Device</div><div class="value ${game.onIPad ? 'yes' : ''}">${game.onIPad ? 'Installed' : 'Not installed'}</div></div>
       </div>
       <div class="actions">${actions}</div>
-      <div class="note">${game.onPC ? 'Only missing files are copied, then the game is removed from this PC.' : `Installed by ${esc(launcher)}, copied to the device, then removed from this PC.`}</div>
+      <div class="note">${game.store === 'steam' ? 'This PC downloads and unpacks the game and writes it straight into iDeck. Nothing is installed on Windows.' : 'iDeck downloads the game. Nothing is installed on Windows.'}</div>
+      ${game.failed ? `<div class="error">${esc(game.failed)}</div>` : ''}
       <div class="error" id="drawer-error"></div>
       ${dlc}
     </div>`;
@@ -306,13 +300,12 @@ async function act(action, extra = {}) {
   try {
     if (action === 'close') { selected = null; render(); return; }
     if (action === 'load-dlc') { await irelay.steamDLC(game.id); return; }
-    if (action === 'send') await irelay.send({ ...request(game), ref: `${game.store}:${game.id}` });
-    if (action === 'install') await irelay.install({ ...request(game), send: false });
-    if (action === 'install-send') await irelay.install({ ...request(game), send: true });
-    if (action === 'dlc') await irelay.install({ ...request(game), dlcId: extra.dlc, send: true });
+    if (action === 'install') await irelay.install(request(game));
+    if (action === 'dlc') await irelay.install({ ...request(game), dlcId: extra.dlc });
     view = 'tasks';
     document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
     selected = null;
+    lastGrid = '';
     render();
   } catch (failure) {
     if (error) error.textContent = String(failure.message || failure).replace(/^Error invoking remote method '\w+': (Error: )?/, '');
@@ -340,11 +333,9 @@ document.querySelectorAll('#filter button').forEach((button) => {
 });
 $('search').addEventListener('input', (event) => { query = event.target.value.trim().toLowerCase(); render(); });
 $('refresh').addEventListener('click', () => (view.startsWith('bugs-') ? loadBugs(view) : irelay.refresh()));
-$('gate-button').addEventListener('click', () => irelay.openSteam());
+$('update-button').addEventListener('click', () => irelay.checkUpdate());
 $('device-select').addEventListener('change', (event) => irelay.selectDevice(event.target.value));
 $('content').addEventListener('click', (event) => {
-  const cancel = event.target.closest('[data-cancel]');
-  if (cancel) { irelay.cancel(cancel.dataset.cancel); return; }
   const card = event.target.closest('.card');
   if (!card) return;
   selected = { store: card.dataset.store, id: card.dataset.id };
@@ -360,8 +351,6 @@ $('drawer').addEventListener('click', (event) => {
   if (action) { act(action.dataset.action); return; }
   const dlc = event.target.closest('[data-dlc]');
   if (dlc) act('dlc', { dlc: Number(dlc.dataset.dlc) });
-  const cancel = event.target.closest('[data-cancel]');
-  if (cancel) irelay.cancel(cancel.dataset.cancel);
 });
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && selected) { selected = null; render(); } });
 
