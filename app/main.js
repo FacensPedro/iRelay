@@ -229,6 +229,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     setTimeout(pollInstalls, 500);
   });
   // Bugs: iRelay's own log, and iDeck's (read from the device over the cable).
+  const clearedErrors = new Set();
   ipcMain.handle('irelayBugs', () => {
     let text = '';
     try {
@@ -239,15 +240,20 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     const lines = text.split(/\r?\n/).filter(Boolean);
     const issues = [...new Set(lines.filter((line) => /fatal|error|failed|refused|could not|cannot|timeout/i.test(line)
       && !/another iRelay is running|update check skipped/i.test(line))
-      .map((line) => line.replace(/^\S+Z /, '')))].reverse().slice(0, 300);
-    for (const item of state.installs) if (item.error) issues.unshift(`${item.title}: ${item.error}`);
+      .map((line) => line.replace(/^\S+Z /, '')))].reverse();
+    for (const item of state.installs) {
+      const line = `${item.title}: ${item.error}`;
+      if (item.error && !clearedErrors.has(line)) issues.unshift(line);
+    }
     return { issues, log: lines.slice(-300).join('\n') };
   });
   // Clear: iRelay's log (this run's lines start again) and iDeck's logs on the device.
   ipcMain.handle('clearIrelayBugs', () => {
+    // The log file is emptied; failed downloads iDeck still reports (it keeps
+    // them until it restarts) are remembered as cleared, so they stay out.
     try { fs.writeFileSync(path.join(app.getPath('userData'), 'irelay.log'), ''); } catch { /* none */ }
     global.irelayLogOffset = 0;
-    state.installs = state.installs.filter((item) => !item.error);
+    for (const item of state.installs) if (item.error) clearedErrors.add(`${item.title}: ${item.error}`);
   });
   ipcMain.handle('clearIdeckBugs', async () => {
     if (!deviceId) throw new Error('Connect a device with iDeck first.');

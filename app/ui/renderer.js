@@ -241,10 +241,17 @@ function renderBugs() {
   on('copy-bugs', () => navigator.clipboard.writeText([...issues, '', data.log || ''].join('\n')));
   on('fold-bugs', () => { bugsOpen = !bugsOpen; lastGrid = ''; render(); });
   on('clear-bugs', async () => {
+    const kind = view;
     try {
-      if (view === 'bugs-irelay') await irelay.clearIrelayBugs(); else await irelay.clearIdeckBugs();
-    } catch { /* shown on reload */ }
-    loadBugs(view);
+      if (kind === 'bugs-irelay') await irelay.clearIrelayBugs(); else await irelay.clearIdeckBugs();
+    } catch (failure) {
+      bugs[kind] = { error: 'Could not clear: ' + String(failure.message || failure).replace(/^Error invoking remote method '\w+': (Error: )?/, '')
+        + (kind === 'bugs-ideck' ? ' (update iDeck to clear its log from here)' : '') };
+      lastGrid = '';
+      render();
+      return;
+    }
+    loadBugs(kind);
   });
   on('fold-log', () => { logOpen = !logOpen; lastGrid = ''; render(); });
 }
