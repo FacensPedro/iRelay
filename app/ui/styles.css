@@ -218,3 +218,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 .update-note { color: var(--muted); font-size: 12px; margin-top: 6px; }
 .token-row { display: flex; gap: 8px; margin-top: 12px; }
 .token-row input { flex: 1; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+
+.fold { display: block; width: 100%; text-align: left; margin: 10px 0 8px; padding: 8px 2px; border: 0; background: none;
+  color: var(--text); font-weight: 600; }
+.dlc-pick { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.dlc-pick input { accent-color: var(--accent); }

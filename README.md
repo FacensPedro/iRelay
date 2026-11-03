@@ -5,11 +5,12 @@ iRelay is a Windows companion for [iDeck](https://github.com/FacensPedro/iDeck).
 ## Features
 
 - **Your libraries:** iRelay shows the Steam, Epic Games and GOG libraries iDeck is signed in to, and marks what is already on the device.
-- **Install on device:** choose a game, or a DLC of a Steam game already on the device, and iDeck starts the download.
+- **Install on device:** choose a game, and tick any of its Steam DLC to install right after it, or add DLC to a game already on the device. iDeck starts the download.
 - **Steam processed on the PC:** for Steam games, this PC downloads every chunk from Steam's content servers, decrypts, decompresses and verifies it, and writes it into the game's files on the device. iDeck checks each chunk again and fetches anything that failed itself. Chunks stay in memory; nothing is written on the PC.
 - **Epic Games and GOG:** iDeck downloads these itself.
 - **Bugs:** **iRelay bugs** lists this run's problems. **iDeck bugs** reads the ones iDeck found on the device.
-- **Updates:** iRelay updates itself at start, or from **Update iRelay**, without an installer.
+- **Updates:** iRelay updates itself at start, or from **Update iRelay**, without running the installer again.
+- **Folders:** **About** opens iRelay's data folder (log, updates, settings) and its program folder.
 
 ## Requirements
 
@@ -19,8 +20,8 @@ iRelay is a Windows companion for [iDeck](https://github.com/FacensPedro/iDeck).
 
 ## Getting started
 
-1. Download `iRelay-<version>-win-x64.zip` from [Releases](../../releases) and take `iRelay.exe` out of it. That one file is the whole program.
-2. Run `iRelay.exe`.
+1. Download `iRelay-<version>-win-x64.zip` from [Releases](../../releases), take `iRelay-Setup.exe` out of it and run it. Windows asks for administrator rights once.
+2. Start iRelay from the desktop or the Start menu.
 3. Connect the device with a USB cable, unlock it, tap **Trust** and open iDeck.
 4. Pick a game and choose **Install on device**.
 
@@ -43,13 +44,9 @@ iRelay connects the way [iloader](https://github.com/nab138/iloader) does (throu
 
 ## Antivirus
 
-iRelay keeps clear of the behaviour antivirus programs look for. It changes no system settings, adds no exclusions, runs no hidden scripts and asks for no administrator rights. It runs no other programs and installs nothing. Updates come only from this repository's releases and are checked against a SHA-256 checksum.
+The installer adds iRelay's install folder (by default `C:\Program Files\iRelay`) to Microsoft Defender Antivirus' exclusions, so Defender does not scan or quarantine iRelay's own files. Uninstalling iRelay removes the exclusion. Nothing else is excluded, and nothing else on the PC is changed.
 
-An unsigned program is still unknown to Microsoft, so:
-
-- **Code signing removes the warnings.** Add the repository secrets `WIN_CSC_LINK` (the base64 of a code-signing `.pfx`) and `WIN_CSC_KEY_PASSWORD`, and every build is signed. Azure Trusted Signing works too, and SignPath signs open-source projects for free.
-- **Report a false positive.** If Microsoft Defender flags a release, submit `iRelay.exe` at <https://www.microsoft.com/wdsi/filesubmission> as a "Software developer" with "Incorrectly detected as malware". Microsoft clears the file, usually within a few days.
-- **SmartScreen warning.** If SmartScreen warns about an unknown publisher, choose **More info › Run anyway**.
+Defender can still check the installer itself before it runs. Code signing removes that warning: add the repository secrets `WIN_CSC_LINK` (the base64 of a code-signing `.pfx`) and `WIN_CSC_KEY_PASSWORD`, and every build is signed. If SmartScreen warns about an unknown publisher, choose **More info › Run anyway**. If Defender flags a release, submit it at <https://www.microsoft.com/wdsi/filesubmission> as a false positive.
 
 ## Updating
 

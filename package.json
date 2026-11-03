@@ -1,7 +1,7 @@
 {
   "name": "irelay",
   "productName": "iRelay",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Install Steam, GOG and Epic games on a Windows PC and copy them to iDeck over USB.",
   "main": "shell/main.js",
   "author": "FacensPedro",
@@ -27,7 +27,7 @@
     "copyright": "Copyright \u00a9 FacensPedro",
     "directories": {
       "output": "dist",
-      "buildResources": "assets"
+      "buildResources": "build"
     },
     "files": [
       "shell/**",
@@ -38,20 +38,31 @@
     "win": {
       "target": [
         {
-          "target": "portable",
+          "target": "nsis",
           "arch": [
             "x64"
           ]
         }
       ],
       "icon": "assets/icon.ico",
-      "artifactName": "iRelay.exe",
+      "artifactName": "iRelay-Setup.exe",
       "requestedExecutionLevel": "asInvoker",
       "legalTrademarks": "iRelay"
     },
-    "portable": {
-      "unicode": true,
-      "requestExecutionLevel": "user"
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "iRelay",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "include": "build/installer.nsh",
+      "artifactName": "iRelay-Setup.exe",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
     }
   }
 }

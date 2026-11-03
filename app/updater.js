@@ -90,9 +90,8 @@ async function check(current, status) {
   return { version, installed: version };
 }
 
-/// Restarts iRelay into the downloaded version. A portable iRelay.exe runs from
-/// a temporary copy that is removed when it quits, so the restart starts the
-/// iRelay.exe the user opened.
+/// Restarts iRelay into the downloaded version (the installed iRelay.exe; for
+/// an older portable copy, the file the user opened).
 function restart() {
   const execPath = process.env.PORTABLE_EXECUTABLE_FILE;
   app.releaseSingleInstanceLock();
