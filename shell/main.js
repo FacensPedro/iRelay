@@ -27,6 +27,8 @@ function fatal(error) {
 }
 process.on('uncaughtException', fatal);
 process.on('unhandledRejection', (reason) => log(`unhandled rejection ${(reason && reason.stack) || reason}`));
+// Where this run's lines begin: iRelay bugs lists only problems of this run.
+try { global.irelayLogOffset = fs.statSync(logFile).size; } catch { global.irelayLogOffset = 0; }
 log(`start ${process.argv.slice(1).join(' ')} electron=${process.versions.electron} node=${process.versions.node}`);
 
 const bundledRoot = path.join(__dirname, '..', 'app');
