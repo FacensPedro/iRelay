@@ -17,14 +17,14 @@ iRelay is a Windows companion for [iDeck](https://github.com/FacensPedro/iDeck).
 - The **Steam client running** on the PC. iRelay waits until Steam is open.
 - The **Apple Devices** app (Microsoft Store) or **iTunes**. iRelay uses Apple's device service to reach the device over USB, the same requirement as [iloader](https://github.com/nab138/iloader).
 - **Epic Games Launcher** for Epic games and **GOG Galaxy** for GOG games.
-- iDeck with **Settings › Steam › iRelay** turned on.
+- iDeck with **Settings › iRelay** turned on.
 
 ## Getting started
 
-1. Download `iRelay-<version>-win-x64.zip` from [Releases](../../releases) and extract it anywhere you like, for example `Documents\iRelay`.
+1. Download `iRelay-<version>-win-x64.zip` from [Releases](../../releases). Right-click it, choose **Extract All…** and pick a folder such as `Documents\iRelay`. Don't run `iRelay.exe` from inside the zip, because it needs the files next to it.
 2. Start Steam, then run `iRelay.exe`.
 3. Connect the device with a USB cable, unlock it and tap **Trust**. If several devices are connected, choose one under **Connected device**.
-4. In iDeck, open **Settings › Steam › iRelay** and turn on **Use iRelay (USB cable)**.
+4. In iDeck, open **Settings › iRelay** and turn on **Use iRelay (USB cable)**.
 5. In iRelay, pick a game and choose **Install and copy to device**.
 
 Keep iDeck open on the device while a copy is running, because iOS and iPadOS pause apps in the background.
@@ -53,6 +53,10 @@ Games are copied into the folders iDeck uses for each store, inside its Windows 
 | Steam | `Program Files (x86)/Steam/steamapps/common/<installdir>` | `appmanifest_<appid>.acf`, plus DLC records |
 | Epic Games | `Program Files/Epic Games/<folder>` | iDeck's Epic install record |
 | GOG | `GOG Games/<folder>` | The game's `goggame-<id>.info` |
+
+## Troubleshooting
+
+If iRelay doesn't open, check `%APPDATA%\iRelay\irelay.log`, where iRelay records each start and any error. Start errors are also shown in a dialog.
 
 ## Antivirus
 

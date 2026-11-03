@@ -21,6 +21,16 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run build
+      # Starts the built iRelay.exe on Windows and fails when it does not open.
+      - name: Start test
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path dist/iRelay-win32-x64/iRelay.exe
+          $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test' -PassThru
+          if (-not $process.WaitForExit(90000)) { Stop-Process -Id $process.Id -Force; $timedOut = $true }
+          $log = Join-Path $env:APPDATA 'iRelay\irelay.log'
+          if (Test-Path $log) { Get-Content $log } else { Write-Host 'no log written' }
+          if ($timedOut -or -not (Select-String -Path $log -Pattern 'smoke test passed' -Quiet)) { throw 'iRelay did not open' }
       - name: Package
         shell: pwsh
         run: |

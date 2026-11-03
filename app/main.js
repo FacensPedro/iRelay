@@ -13,8 +13,11 @@ const epic = require('./stores/epic');
 const gog = require('./stores/gog');
 
 const VERSION = (global.irelay && global.irelay.version) || app.getVersion();
+const log = global.irelayLog || (() => {});
+const SMOKE = process.argv.includes('--smoke-test');
 
-if (!app.requestSingleInstanceLock()) {
+if (!SMOKE && !app.requestSingleInstanceLock()) {
+  log('another iRelay is running; focusing it');
   app.quit();
 } else {
   nativeTheme.themeSource = 'dark';
@@ -61,6 +64,15 @@ if (!app.requestSingleInstanceLock()) {
     });
     window.setMenuBarVisibility(false);
     window.once('ready-to-show', () => window.show());
+    // Never stay invisible: show after a few seconds even if the page is slow.
+    setTimeout(() => { if (window && !window.isDestroyed() && !window.isVisible()) window.show(); }, 4000);
+    window.webContents.on('render-process-gone', (_, details) => log(`renderer gone: ${details.reason}`));
+    window.webContents.on('did-fail-load', (_, code, text) => log(`page failed to load: ${code} ${text}`));
+    window.webContents.on('console-message', (_, level, message) => { if (level >= 2) log(`page: ${message}`); });
+    window.webContents.on('did-finish-load', () => {
+      log('window loaded');
+      if (SMOKE) setTimeout(() => { log('smoke test passed'); app.exit(0); }, 5000);
+    });
     window.webContents.setWindowOpenHandler(({ url }) => {
       if (/^https:\/\//.test(url)) shell.openExternal(url);
       return { action: 'deny' };
@@ -213,7 +225,7 @@ if (!app.requestSingleInstanceLock()) {
         state.cable = { status: 'waiting', message: `Unlock ${current.name === 'Device' ? 'the device' : current.name} and tap Trust.`, device: null };
       } else if (!current.ideck) {
         deviceId = null;
-        state.cable = { status: 'waiting', message: `Open iDeck on ${current.name} and turn on iRelay in Settings › Steam.`, device: { name: current.name, model: current.model, iosVersion: current.iosVersion } };
+        state.cable = { status: 'waiting', message: `Open iDeck on ${current.name} and turn on iRelay in Settings › iRelay.`, device: { name: current.name, model: current.model, iosVersion: current.iosVersion } };
       } else {
         const first = deviceId !== current.id;
         deviceId = current.id;
@@ -325,20 +337,25 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     createWindow();
     const status = (text) => { state.boot = text; push(); };
-    if (app.isPackaged) {
+    log(`iRelay ${VERSION} ready`);
+    if (app.isPackaged && !SMOKE) {
       try {
         const installed = await updater.check(VERSION, status);
         if (installed) {
           status(`Restarting into iRelay ${installed}…`);
-          setTimeout(() => { app.relaunch(); app.exit(0); }, 600);
+          // Release the single-instance lock first, or the new copy would see
+          // this one and quit at once.
+          log(`updated to ${installed}; restarting`);
+          setTimeout(() => { app.releaseSingleInstanceLock(); app.relaunch(); app.exit(0); }, 600);
           return;
         }
-      } catch {
+      } catch (error) {
         // Offline or GitHub unreachable: start this version.
+        log(`update check skipped: ${error.message}`);
       }
     }
     relay = new Relay(path.join(app.getPath('userData'), 'cache'), push);
-    relay.start();
+    try { relay.start(); } catch (error) { log(`relay not started: ${error.message}`); }
     state.ready = true;
     state.boot = '';
     every(2000, pollCable);
