@@ -3,6 +3,8 @@ const path = require('path');
 const { app, BrowserWindow, ipcMain, shell, nativeTheme } = require('electron');
 const usbmux = require('./usbmux');
 const device = require('./device');
+const lockdown = require('./lockdown');
+const fs = require('fs');
 const transfer = require('./transfer');
 const updater = require('./updater');
 const Relay = require('./relay');
@@ -23,7 +25,9 @@ if (!app.requestSingleInstanceLock()) {
     boot: 'Starting…',
     ready: false,
     steamRunning: null,
-    cable: { status: 'searching', message: 'Looking for your iPad…', device: null },
+    cable: { status: 'searching', message: 'Looking for a connected device…', device: null },
+    devices: [],
+    selected: null,
     library: null,
     libraryError: null,
     pc: { steam: {}, epic: {}, gog: {} },
@@ -86,7 +90,7 @@ if (!app.requestSingleInstanceLock()) {
 
   async function runSend(job, task) {
     try {
-      if (!deviceId) throw new Error('Connect your iPad by cable first.');
+      if (!deviceId) throw new Error('Connect a device with iDeck by cable first.');
       const progress = (update) => { Object.assign(task, update); push(); };
       if (job.store === 'steam') {
         const pc = (await steam.installed())[job.appId];
@@ -127,7 +131,7 @@ if (!app.requestSingleInstanceLock()) {
         progress({ phase: 'Finishing' });
         await device.finish(deviceId, { store: 'gog', title: pc.title });
       }
-      Object.assign(task, { phase: 'On your iPad', finished: true, done: task.total });
+      Object.assign(task, { phase: 'On the device', finished: true, done: task.total });
       refreshLibrary();
     } catch (error) {
       Object.assign(task, { phase: 'Failed', error: error.message, finished: true });
@@ -174,31 +178,58 @@ if (!app.requestSingleInstanceLock()) {
     push();
   }
 
+  // Devices as iloader finds them: usbmuxd's list, the pair record (Trust)
+  // and lockdownd's name, model and iOS version; then iDeck's own service.
+  const known = new Map(); // usbmux id -> lockdown info
+  const choiceFile = path.join(app.getPath('userData'), 'device.json');
+  let chosen = null;
+  try { chosen = JSON.parse(fs.readFileSync(choiceFile, 'utf8')).udid || null; } catch { /* first start */ }
+
   async function pollCable() {
     try {
-      const devices = await usbmux.listDevices();
-      if (!devices.length) {
-        deviceId = null;
-        state.cable = { status: 'none', message: 'Connect your iPad with a USB cable and tap Trust.', device: null };
-      } else {
-        const candidate = devices[0].id;
-        try {
-          const info = await device.info(candidate);
-          const first = deviceId !== candidate;
-          deviceId = candidate;
-          state.cable = { status: 'connected', message: `Connected to ${info.name}`, device: info };
-          if (first || !state.library) refreshLibrary();
-          relay.tunnels(devices).catch(() => {});
-        } catch (error) {
-          deviceId = null;
-          state.cable = { status: 'waiting', message: 'iPad connected. Open iDeck and turn on iRelay in Settings › Steam.', device: null };
+      const found = await usbmux.listDevices();
+      const devices = [];
+      for (const entry of found) {
+        // lockdownd answers these values even before Trust; iDeck's service
+        // only once the device trusts this PC.
+        let info = known.get(entry.id);
+        if (!info) {
+          try { info = await lockdown.deviceInfo(entry.id); known.set(entry.id, info); } catch { info = null; }
         }
+        let ideck = null;
+        try { ideck = await device.info(entry.id); } catch { ideck = null; }
+        const trusted = !!ideck || await usbmux.hasPairRecord(entry.serial);
+        devices.push({ id: entry.id, udid: entry.serial, trusted, ...(info || { name: 'Device', model: 'Device' }), ideck });
+      }
+      for (const id of [...known.keys()]) if (!found.some((entry) => entry.id === id)) known.delete(id);
+      state.devices = devices.map(({ id, ...rest }) => rest);
+      const current = devices.find((entry) => entry.udid === chosen) || devices.find((entry) => entry.ideck) || devices[0];
+      state.selected = current ? current.udid : null;
+      if (!current) {
+        deviceId = null;
+        state.cable = { status: 'none', message: 'Connect a device with a USB cable.', device: null };
+      } else if (!current.trusted) {
+        deviceId = null;
+        state.cable = { status: 'waiting', message: `Unlock ${current.name === 'Device' ? 'the device' : current.name} and tap Trust.`, device: null };
+      } else if (!current.ideck) {
+        deviceId = null;
+        state.cable = { status: 'waiting', message: `Open iDeck on ${current.name} and turn on iRelay in Settings › Steam.`, device: { name: current.name, model: current.model, iosVersion: current.iosVersion } };
+      } else {
+        const first = deviceId !== current.id;
+        deviceId = current.id;
+        state.cable = {
+          status: 'connected', message: `Connected to ${current.name}`,
+          device: { ...current.ideck, name: current.name, model: current.model, iosVersion: current.iosVersion },
+        };
+        if (first) { state.library = null; refreshLibrary(); } else if (!state.library) refreshLibrary();
+        relay.tunnels(devices.filter((entry) => entry.ideck)).catch(() => {});
       }
     } catch {
       deviceId = null;
+      state.devices = [];
       state.cable = {
         status: 'service', device: null,
-        message: 'Install the Apple Devices app (Microsoft Store) or iTunes so iRelay can reach your iPad over USB.',
+        message: 'Install iTunes (or the Apple Devices app) so iRelay can reach devices over USB, as iloader does.',
       };
     }
     push();
@@ -281,6 +312,11 @@ if (!app.requestSingleInstanceLock()) {
       Object.assign(task, { phase: 'Cancelled', finished: true });
     }
     push();
+  });
+  ipcMain.handle('selectDevice', (_, udid) => {
+    chosen = udid;
+    try { fs.writeFileSync(choiceFile, JSON.stringify({ udid })); } catch { /* not remembered */ }
+    pollCable();
   });
   ipcMain.handle('clearCache', () => relay && relay.clearCache());
 

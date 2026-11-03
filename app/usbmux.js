@@ -91,4 +91,15 @@ async function connect(deviceId, port) {
   return socket;
 }
 
-module.exports = { listDevices, connect };
+/// Whether this PC holds a pair record for the device (it tapped Trust).
+async function hasPairRecord(udid) {
+  try {
+    const { socket, xml } = await exchange({ MessageType: 'ReadPairRecord', PairRecordID: udid }, 3);
+    socket.destroy();
+    return /<key>PairRecordData<\/key>/.test(xml);
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { listDevices, connect, hasPairRecord };
