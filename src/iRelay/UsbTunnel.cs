@@ -94,11 +94,18 @@ public sealed class UsbTunnel
     async Task Serve(int device, NetworkStream deviceStream)
     {
         var client = deviceStream.Socket;
+        bool waiting = true;
+        void Used()
+        {
+            if (!waiting) return;
+            waiting = false;
+            lock (gate) idle[device] = Math.Max(0, idle.GetValueOrDefault(device) - 1);
+        }
         try
         {
             var first = new byte[64 * 1024];
             int read = await deviceStream.ReadAsync(first, stop.Token);
-            lock (gate) idle[device] = Math.Max(0, idle.GetValueOrDefault(device) - 1);
+            Used();
             if (read <= 0) return;
             Interlocked.Increment(ref busy);
             try
@@ -118,10 +125,10 @@ public sealed class UsbTunnel
         }
         catch
         {
-            lock (gate) idle[device] = Math.Max(0, idle.GetValueOrDefault(device) - (deviceStream.CanRead ? 0 : 0));
         }
         finally
         {
+            Used();
             client.Dispose();
             deviceStream.Dispose();
         }
