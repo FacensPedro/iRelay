@@ -43,6 +43,8 @@ class Relay {
       res.end();
     }));
     this.server.keepAliveTimeout = 60000;
+    // Another program on the port only turns off the download relay.
+    this.server.on('error', (error) => { (global.irelayLog || (() => {}))(`relay server: ${error.message}`); });
     this.server.listen(LOCAL_PORT, '127.0.0.1');
   }
 
