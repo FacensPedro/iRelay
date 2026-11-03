@@ -362,9 +362,14 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   // Bugs: iRelay's own log, and iDeck's (read from the device over the cable).
   ipcMain.handle('irelayBugs', () => {
     let text = '';
-    try { text = fs.readFileSync(path.join(app.getPath('userData'), 'irelay.log'), 'utf8'); } catch { /* none yet */ }
+    try {
+      // Only this run: problems an earlier version logged (and fixed since) stay out.
+      const all = fs.readFileSync(path.join(app.getPath('userData'), 'irelay.log'));
+      text = all.subarray(Math.min(global.irelayLogOffset || 0, all.length)).toString('utf8');
+    } catch { /* none yet */ }
     const lines = text.split(/\r?\n/).filter(Boolean);
-    const issues = [...new Set(lines.filter((line) => /fatal|error|failed|refused|could not|cannot|timeout/i.test(line))
+    const issues = [...new Set(lines.filter((line) => /fatal|error|failed|refused|could not|cannot|timeout/i.test(line)
+      && !/another iRelay is running|update check skipped/i.test(line))
       .map((line) => line.replace(/^\S+Z /, '')))].reverse().slice(0, 300);
     for (const task of state.tasks) if (task.error) issues.unshift(`${task.title}: ${task.error}`);
     return { issues, log: lines.slice(-300).join('\n') };
