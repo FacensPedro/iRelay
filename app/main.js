@@ -5,12 +5,9 @@ const usbmux = require('./usbmux');
 const device = require('./device');
 const lockdown = require('./lockdown');
 const fs = require('fs');
-const transfer = require('./transfer');
 const updater = require('./updater');
 const Relay = require('./relay');
-const steam = require('./stores/steam');
-const epic = require('./stores/epic');
-const gog = require('./stores/gog');
+const Processor = require('./process');
 
 const VERSION = (global.irelay && global.irelay.version) || app.getVersion();
 const log = global.irelayLog || (() => {});
@@ -28,18 +25,17 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     boot: 'Starting…',
     update: { busy: false, message: '', hasToken: false },
     ready: false,
-    steamRunning: null,
     cable: { status: 'searching', message: 'Looking for a connected device…', device: null },
     devices: [],
     selected: null,
     library: null,
     libraryError: null,
-    pc: { steam: {}, epic: {}, gog: {} },
-    tasks: [],
-    relay: [],
+    installs: [],   // iDeck's own downloads (GET /installs)
+    jobs: [],       // Steam downloads this PC processes for iDeck
   };
   let deviceId = null;
   let relay = null;
+  let processor = null;
 
   function push() {
     if (window && !window.isDestroyed()) window.webContents.send('state', state);
@@ -82,105 +78,6 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     window.loadFile(path.join(__dirname, 'ui', 'index.html'));
   }
 
-  // MARK: Tasks
-
-  function addTask(task) {
-    const entry = { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, phase: 'Queued', done: 0, total: 0, error: null, finished: false, ...task };
-    state.tasks.unshift(entry);
-    state.tasks = state.tasks.slice(0, 40);
-    push();
-    return entry;
-  }
-
-  const refOf = (job) => `${job.store}:${job.appId || job.appName || job.id}`;
-  const waiting = []; // installs on the PC to send once complete
-  let sending = Promise.resolve();
-
-  function queueSend(job) {
-    const task = addTask({ kind: 'send', store: job.store, title: job.title, ref: refOf(job) });
-    sending = sending.then(() => runSend(job, task)).catch(() => {});
-  }
-
-  async function runSend(job, task) {
-    try {
-      if (!deviceId) throw new Error('Connect a device with iDeck by cable first.');
-      const progress = (update) => { Object.assign(task, update); push(); };
-      if (job.store === 'steam') {
-        const pc = (await steam.installed())[job.appId];
-        if (!pc || !pc.complete) throw new Error('The game is not fully installed on this PC.');
-        const root = `Program Files (x86)/Steam/steamapps/common/${pc.installDir}`;
-        const sent = await transfer.sync(deviceId, root, pc.folder, progress, () => task.cancelled);
-        const fs = require('fs');
-        const onIPad = libraryGame('steam', job.appId);
-        const dlc = pc.dlc.filter((id) => !(onIPad && (onIPad.dlc || []).some((d) => d.appId === id && d.installed)));
-        // A DLC sent alone owns the files that changed; sent with its game it owns none
-        // (iDeck must never delete the game's files when the DLC is removed).
-        const dlcOnly = job.dlcOnly && onIPad && onIPad.installed;
-        progress({ phase: 'Finishing' });
-        await device.finish(deviceId, {
-          store: 'steam', appId: job.appId, title: pc.name, acf: fs.readFileSync(pc.acfPath, 'utf8'),
-          dlc, files: dlcOnly ? sent.map((p) => `${pc.installDir}/${p}`) : [],
-        });
-      } else if (job.store === 'epic') {
-        const pc = epic.installed()[job.appName];
-        if (!pc || !pc.complete) throw new Error('The game is not fully installed on this PC.');
-        const folderName = path.basename(pc.folder);
-        const root = `Program Files/Epic Games/${folderName}`;
-        await transfer.sync(deviceId, root, pc.folder, progress, () => task.cancelled);
-        progress({ phase: 'Finishing' });
-        await device.finish(deviceId, {
-          store: 'epic', title: pc.title,
-          record: {
-            appName: pc.appName, title: pc.title, namespace: pc.namespace, catalogItemID: pc.catalogItemId,
-            folder: root, buildVersion: pc.buildVersion, launchExe: pc.launchExe, launchCommand: pc.launchCommand,
-            installBytes: pc.installBytes, canRunOffline: pc.canRunOffline, requiresOwnershipToken: pc.requiresOwnershipToken,
-          },
-        });
-      } else if (job.store === 'gog') {
-        const pc = (await gog.installed())[job.id];
-        if (!pc) throw new Error('The game is not installed on this PC.');
-        const root = `GOG Games/${path.basename(pc.folder)}`;
-        await transfer.sync(deviceId, root, pc.folder, progress, () => task.cancelled);
-        progress({ phase: 'Finishing' });
-        await device.finish(deviceId, { store: 'gog', title: pc.title });
-      }
-      // The game is on the device now: its files on this PC are removed.
-      progress({ phase: 'Removing from this PC' });
-      await removeFromPC(job);
-      Object.assign(task, { phase: 'On the device', finished: true, done: task.total });
-      refreshLibrary();
-    } catch (error) {
-      Object.assign(task, { phase: 'Failed', error: error.message, finished: true });
-      log(`copy failed: ${job.title}: ${error.message}`);
-    }
-    push();
-  }
-
-  /// Deletes a copied game from this PC: its folder and the launcher's install
-  /// record (Steam's appmanifest, Epic's manifest item). GOG's registry entry
-  /// points at a folder that is gone, which iRelay then ignores.
-  async function removeFromPC(job) {
-    try {
-      if (job.store === 'steam') {
-        const pc = (await steam.installed())[job.appId];
-        if (!pc) return;
-        await fs.promises.rm(pc.folder, { recursive: true, force: true });
-        await fs.promises.rm(pc.acfPath, { force: true });
-      } else if (job.store === 'epic') {
-        const pc = epic.installed()[job.appName];
-        if (!pc) return;
-        await fs.promises.rm(pc.folder, { recursive: true, force: true });
-        if (pc.itemPath) await fs.promises.rm(pc.itemPath, { force: true });
-      } else if (job.store === 'gog') {
-        const pc = (await gog.installed())[job.id];
-        if (pc) await fs.promises.rm(pc.folder, { recursive: true, force: true });
-      }
-      log(`removed from this PC after copying: ${job.title}`);
-    } catch (error) {
-      log(`could not remove ${job.title} from this PC: ${error.message}`);
-    }
-  }
-
   function libraryGame(store, id) {
     const list = state.library && state.library[store] && state.library[store].games;
     if (!list) return null;
@@ -189,34 +86,15 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     return list.find((game) => game.appName === id);
   }
 
-  // MARK: Polling
-
-  async function pollPC() {
+  async function pollInstalls() {
+    if (processor) state.jobs = processor.list();
+    if (!deviceId) { state.installs = []; push(); return; }
     try {
-      state.steamRunning = await steam.isRunning();
-      const [steamApps, gogGames] = await Promise.all([steam.installed(), gog.installed()]);
-      state.pc = { steam: steamApps, epic: epic.installed(), gog: gogGames };
-      // Installs waiting on the PC.
-      for (const item of [...waiting]) {
-        let ready = false;
-        if (item.store === 'steam') {
-          const pc = steamApps[item.appId];
-          ready = !!pc && pc.complete && (!item.dlcId || pc.dlc.includes(item.dlcId));
-          if (pc && item.task) Object.assign(item.task, { phase: pc.complete ? 'Installed on PC' : 'Installing on PC (Steam)', done: pc.progress, total: 1 });
-        } else if (item.store === 'epic') {
-          const pc = state.pc.epic[item.appName];
-          ready = !!pc && pc.complete;
-        } else if (item.store === 'gog') {
-          ready = !!gogGames[item.id];
-        }
-        if (ready) {
-          waiting.splice(waiting.indexOf(item), 1);
-          if (item.task) Object.assign(item.task, { phase: 'Installed on PC', finished: true, done: 1, total: 1 });
-          if (item.send) queueSend(item);
-        }
-      }
+      const wasActive = state.installs.some((item) => item.phase !== 'failed');
+      state.installs = (await device.installs(deviceId)).installs || [];
+      // A download just ended: the library shows it installed.
+      if (wasActive && !state.installs.some((item) => item.phase !== 'failed')) refreshLibrary();
     } catch { /* next poll */ }
-    if (relay) state.relay = relay.jobs.map(({ cancelled, ...job }) => job);
     push();
   }
 
@@ -255,7 +133,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
         state.cable = { status: 'waiting', message: `Unlock ${current.name === 'Device' ? 'the device' : current.name} and tap Trust.`, device: null };
       } else if (!current.ideck) {
         deviceId = null;
-        state.cable = { status: 'waiting', message: `Open iDeck on ${current.name} and turn on iRelay in Settings › iRelay.`, device: { name: current.name, model: current.model, iosVersion: current.iosVersion } };
+        state.cable = { status: 'waiting', message: `Open iDeck on ${current.name}.`, device: { name: current.name, model: current.model, iosVersion: current.iosVersion } };
       } else {
         const first = deviceId !== current.id;
         deviceId = current.id;
@@ -300,7 +178,6 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
 
   ipcMain.handle('state', () => state);
   ipcMain.handle('refresh', () => refreshLibrary());
-  ipcMain.handle('openSteam', () => steam.open());
   ipcMain.handle('openExternal', (_, url) => (/^https:\/\//.test(url) ? shell.openExternal(url) : null));
   ipcMain.handle('steamDLC', async (_, appId) => {
     if (!deviceId) return [];
@@ -310,55 +187,19 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     push();
     return result.dlc || [];
   });
+  // Installs run in iDeck: nothing is installed on Windows. Steam downloads
+  // come back here to be processed (POST /process from iDeck, process.js).
   ipcMain.handle('install', async (_, request) => {
-    const { store, send } = request;
-    if (!state.steamRunning) throw new Error('Steam must be running on this PC.');
-    if (store === 'steam') {
-      const appId = Number(request.appId);
-      const dlcId = request.dlcId ? Number(request.dlcId) : null;
-      const pc = state.pc.steam[appId];
-      if (dlcId && !(pc && pc.complete)) throw new Error('Install the game on this PC first.');
-      const title = request.title || (pc && pc.name) || `App ${appId}`;
-      const ready = dlcId ? pc.dlc.includes(dlcId) : pc && pc.complete;
-      if (ready) {
-        if (send) queueSend({ store, appId, title, dlcOnly: !!dlcId });
-        return;
-      }
-      await steam.install(dlcId || appId);
-      const task = addTask({ kind: 'install', store, title: dlcId ? `${title} — DLC` : title, phase: 'Installing on PC (Steam)', ref: refOf({ store, appId }) });
-      waiting.push({ store, appId, dlcId, title, send, task, dlcOnly: !!dlcId });
-    } else if (store === 'epic') {
-      const pc = state.pc.epic[request.appName];
-      if (pc && pc.complete) { if (send) queueSend({ store, appName: request.appName, title: pc.title }); return; }
-      await epic.install(request);
-      const task = addTask({ kind: 'install', store, title: request.title, phase: 'Installing on PC (Epic Games Launcher)', ref: refOf({ store, appName: request.appName }) });
-      waiting.push({ store, appName: request.appName, title: request.title, send, task });
-    } else if (store === 'gog') {
-      const id = Number(request.id);
-      if (state.pc.gog[id]) { if (send) queueSend({ store, id, title: request.title }); return; }
-      await gog.install(id);
-      const task = addTask({ kind: 'install', store, title: request.title, phase: 'Install it in GOG Galaxy (opened)', ref: refOf({ store, id }) });
-      waiting.push({ store, id, title: request.title, send, task });
-    }
-    push();
-  });
-  ipcMain.handle('send', (_, request) => {
-    queueSend({ ...request, appId: request.appId && Number(request.appId), id: request.id && Number(request.id) });
-  });
-  ipcMain.handle('cancel', (_, id) => {
-    const task = state.tasks.find((item) => item.id === id);
-    if (task) task.cancelled = true;
-    const index = waiting.findIndex((item) => item.task && item.task.id === id);
-    if (index >= 0) {
-      waiting.splice(index, 1);
-      Object.assign(task, { phase: 'Cancelled', finished: true });
-    }
-    push();
-  });
-  ipcMain.handle('selectDevice', (_, udid) => {
-    chosen = udid;
-    try { fs.writeFileSync(choiceFile, JSON.stringify({ udid })); } catch { /* not remembered */ }
-    pollCable();
+    if (!deviceId) throw new Error('Connect a device with iDeck first.');
+    const body = { store: request.store };
+    if (request.store === 'steam') {
+      body.appId = Number(request.appId);
+      if (request.dlcId) body.dlcId = Number(request.dlcId);
+    } else if (request.store === 'gog') body.id = Number(request.id);
+    else body.appName = request.appName;
+    await device.install(deviceId, body);
+    log(`install started on the device: ${request.title || body.appId || body.id || body.appName}`);
+    setTimeout(pollInstalls, 500);
   });
   // Bugs: iRelay's own log, and iDeck's (read from the device over the cable).
   ipcMain.handle('irelayBugs', () => {
@@ -372,7 +213,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     const issues = [...new Set(lines.filter((line) => /fatal|error|failed|refused|could not|cannot|timeout/i.test(line)
       && !/another iRelay is running|update check skipped/i.test(line))
       .map((line) => line.replace(/^\S+Z /, '')))].reverse().slice(0, 300);
-    for (const task of state.tasks) if (task.error) issues.unshift(`${task.title}: ${task.error}`);
+    for (const item of state.installs) if (item.error) issues.unshift(`${item.title}: ${item.error}`);
     return { issues, log: lines.slice(-300).join('\n') };
   });
   ipcMain.handle('ideckBugs', async () => {
@@ -405,9 +246,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     state.update = { ...state.update, hasToken: !!updater.getToken(), message: token ? 'Token saved.' : 'Token removed.' };
     push();
   });
-  ipcMain.handle('clearCache', () => {
-    try { if (relay) relay.clearCache(); } catch (error) { log(`clear cache: ${error.message}`); }
-  });
+
 
   // MARK: Start
 
@@ -432,7 +271,15 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     }
     // Not 'cache': on Windows that is Chromium's own Cache folder (names ignore case).
     state.update.hasToken = !!updater.getToken();
-    relay = new Relay(path.join(app.getPath('userData'), 'relay-chunks'), push);
+    processor = new Processor({
+      write: (root, file, offset, size, sha, data) => {
+        if (!deviceId) return Promise.reject(new Error('device not connected'));
+        return device.write(deviceId, root, file, offset, size, sha, data);
+      },
+      onChange: push,
+      log,
+    });
+    relay = new Relay(processor, log);
     try { relay.start(); } catch (error) { log(`relay not started: ${error.message}`); }
     state.ready = true;
     state.boot = '';
@@ -440,7 +287,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     // The device's library again every 30 s, so games copied earlier or
     // installed in iDeck itself show up without a reconnect.
     every(30000, () => (deviceId ? refreshLibrary() : null));
-    every(4000, pollPC);
+    every(2000, pollInstalls);
     push();
   });
 

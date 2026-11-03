@@ -1,190 +1,69 @@
 'use strict';
-// While iDeck downloads a Steam game itself, it sends iRelay the chunks it
-// still needs; the PC downloads them from the same content servers (at the
-// PC's speed) and iDeck takes each one over the cable as soon as it arrives.
-// The bytes are kept exactly as the content server sent them: iDeck checks and
-// decrypts them, so no Steam account is needed here.
+// The HTTP server iDeck reaches over the cable. iOS gives apps no USB
+// networking, so iRelay opens the connections: it keeps a few open to iDeck's
+// port 27091 (iDeck hands each to one of its requests) and joins each to this
+// server on 127.0.0.1:27090.
 //
-// iOS gives apps no USB networking, so iRelay opens the connections: it keeps
-// a few open to iDeck's port 27091 (iDeck hands each to one of its requests)
-// and joins each to this HTTP server on 127.0.0.1.
-const fs = require('fs');
-const path = require('path');
+//   GET    /ping            name and version
+//   POST   /process         a Steam download for this PC to process (process.js)
+//   GET    /process/<id>    its progress; once finished, the chunks left to iDeck
+//   DELETE /process/<id>    cancel
 const http = require('http');
 const net = require('net');
+const os = require('os');
 const usbmux = require('./usbmux');
 
 const LOCAL_PORT = 27090;
 const DEVICE_PORT = 27091;
 const IDLE = 6;
-const SHA = /^[0-9a-f]{40}$/;
 
 class Relay {
-  constructor(cacheDir, onChange) {
-    this.cacheDir = cacheDir;
-    this.onChange = onChange;
-    this.jobs = [];
-    this.servers = new Map();   // depot -> { hosts, auth }
-    this.inflight = new Map();  // key -> Promise<path|null>
-    this.chunkJob = new Map();  // key -> job
-    this.counted = new Set();
-    this.delivered = new Set();
-    this.queue = [];
-    this.active = 0;
-    this.parallel = 24;
-    this.idle = new Map();      // device -> idle tunnels
-    this.bytes = 0;
-    fs.mkdirSync(cacheDir, { recursive: true });
+  constructor(processor, log) {
+    this.processor = processor;
+    this.log = log || (() => {});
+    this.idle = new Map();
   }
 
   start() {
-    this.server = http.createServer((req, res) => this.handle(req, res).catch(() => {
-      if (!res.headersSent) res.writeHead(500);
-      res.end();
+    this.server = http.createServer((req, res) => this.handle(req, res).catch((error) => {
+      if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
     }));
     this.server.keepAliveTimeout = 60000;
-    // Another program on the port only turns off the download relay.
-    this.server.on('error', (error) => { (global.irelayLog || (() => {}))(`relay server: ${error.message}`); });
+    this.server.on('error', (error) => this.log(`relay server: ${error.message}`));
     this.server.listen(LOCAL_PORT, '127.0.0.1');
   }
 
-  key(depot, sha) { return `${depot}/${sha}`; }
-  file(depot, sha) { return path.join(this.cacheDir, String(depot), sha); }
-
   async handle(req, res) {
     const url = new URL(req.url, 'http://local');
+    const json = (status, value) => {
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(value));
+    };
     if (req.method === 'GET' && url.pathname === '/ping') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ name: 'iRelay', version: 2, machine: require('os').hostname() }));
-      return;
+      return json(200, { name: 'iRelay', version: 3, machine: os.hostname() });
     }
-    if (req.method === 'POST' && url.pathname === '/jobs') {
+    if (req.method === 'POST' && url.pathname === '/process') {
       const body = await new Promise((resolve, reject) => {
         const parts = [];
         let size = 0;
-        req.on('data', (part) => { size += part.length; if (size > 256 * 1024 * 1024) req.destroy(); parts.push(part); });
+        req.on('data', (part) => { size += part.length; if (size > 512 * 1024 * 1024) req.destroy(); parts.push(part); });
         req.on('end', () => resolve(Buffer.concat(parts).toString('utf8')));
         req.on('error', reject);
       });
-      const job = this.startJob(JSON.parse(body));
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ total: job.total }));
-      return;
+      const job = this.processor.start(JSON.parse(body));
+      return json(200, { id: job.id, total: job.total });
     }
-    const chunk = /^\/depot\/(\d+)\/chunk\/([0-9a-fA-F]{40})$/.exec(url.pathname);
-    if (req.method === 'GET' && chunk) {
-      const depot = Number(chunk[1]);
-      const sha = chunk[2].toLowerCase();
-      const file = await this.ensure(depot, sha, true);
-      if (!file) { res.writeHead(404); res.end(); return; }
-      let data;
-      try { data = await fs.promises.readFile(file); } catch { res.writeHead(404); res.end(); return; }
-      res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': data.length });
-      res.end(data, () => this.delivered_(depot, sha, file));
-      return;
+    const match = /^\/process\/([\w-]+)$/.exec(url.pathname);
+    if (match && req.method === 'GET') {
+      const status = this.processor.status(match[1]);
+      return status ? json(200, status) : json(404, { error: 'unknown job' });
     }
-    res.writeHead(404);
-    res.end();
-  }
-
-  startJob(request) {
-    const depots = Array.isArray(request.depots) ? request.depots : [];
-    const total = depots.reduce((sum, depot) => sum + (depot.chunks || []).length, 0);
-    for (const old of this.jobs.filter((job) => job.appId === request.appId)) old.cancelled = true;
-    this.jobs = this.jobs.filter((job) => job.appId !== request.appId);
-    const job = {
-      id: `${request.appId}-${Date.now()}`, appId: request.appId, name: request.name || `App ${request.appId}`,
-      total, downloaded: 0, sent: 0, failed: 0, bytes: 0, cancelled: false, started: Date.now(),
-    };
-    this.jobs.unshift(job);
-    this.jobs = this.jobs.slice(0, 20);
-    for (const depot of depots) {
-      this.servers.set(depot.depotId, { hosts: depot.hosts || [], auth: depot.auth || {} });
-      for (const raw of depot.chunks || []) {
-        const sha = String(raw).toLowerCase();
-        if (!SHA.test(sha)) { job.failed += 1; continue; }
-        const key = this.key(depot.depotId, sha);
-        this.chunkJob.set(key, job);
-        this.counted.delete(key);
-        this.delivered.delete(key);
-        this.queue.push({ depot: depot.depotId, sha, job });
-      }
+    if (match && req.method === 'DELETE') {
+      this.processor.cancel(match[1]);
+      return json(200, { ok: true });
     }
-    this.pump();
-    this.onChange();
-    return job;
-  }
-
-  pump() {
-    while (this.active < this.parallel && this.queue.length) {
-      const item = this.queue.shift();
-      if (item.job.cancelled) continue;
-      const key = this.key(item.depot, item.sha);
-      if (this.delivered.has(key)) continue;
-      this.active += 1;
-      this.ensure(item.depot, item.sha, false).finally(() => { this.active -= 1; this.pump(); });
-    }
-  }
-
-  count(key, bytes) {
-    const job = this.chunkJob.get(key);
-    if (!job || this.counted.has(key)) return;
-    this.counted.add(key);
-    job.downloaded += 1;
-    job.bytes += bytes;
-  }
-
-  ensure(depot, sha) {
-    const key = this.key(depot, sha);
-    const file = this.file(depot, sha);
-    if (fs.existsSync(file)) { this.count(key, 0); return Promise.resolve(file); }
-    if (this.inflight.has(key)) return this.inflight.get(key);
-    const promise = this.download(depot, sha, file).finally(() => this.inflight.delete(key));
-    this.inflight.set(key, promise);
-    return promise;
-  }
-
-  async download(depot, sha, file) {
-    const key = this.key(depot, sha);
-    const server = this.servers.get(depot);
-    if (!server || !server.hosts.length) return null;
-    const attempts = Math.max(3, server.hosts.length);
-    const start = parseInt(sha.slice(0, 8), 16) % server.hosts.length;
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const original = server.hosts[(start + attempt) % server.hosts.length];
-      const host = original.replace(/\/+$/, '');
-      const auth = server.auth[original] ?? server.auth[host] ?? '';
-      try {
-        const response = await fetch(`${host}/depot/${depot}/chunk/${sha}${auth}`, {
-          headers: { 'User-Agent': 'Valve/Steam HTTP Client 1.0' }, signal: AbortSignal.timeout(60000),
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = Buffer.from(await response.arrayBuffer());
-        await fs.promises.mkdir(path.dirname(file), { recursive: true });
-        await fs.promises.writeFile(`${file}.part`, data);
-        await fs.promises.rename(`${file}.part`, file);
-        this.bytes += data.length;
-        this.count(key, data.length);
-        return file;
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
-      }
-    }
-    const job = this.chunkJob.get(key);
-    if (job && !this.counted.has(key)) job.failed += 1;
-    return null;
-  }
-
-  delivered_(depot, sha, file) {
-    const key = this.key(depot, sha);
-    this.delivered.add(key);
-    const job = this.chunkJob.get(key);
-    if (job) {
-      this.count(key, 0);
-      job.sent += 1;
-      this.chunkJob.delete(key);
-    }
-    fs.promises.unlink(file).catch(() => {});
+    return json(404, { error: 'not found' });
   }
 
   /// Keeps `IDLE` cable connections open to iDeck's port on each device.
@@ -226,14 +105,6 @@ class Relay {
     });
     socket.on('error', () => {});
     socket.on('close', release);
-  }
-
-  clearCache() {
-    for (const job of this.jobs) job.cancelled = true;
-    this.queue = [];
-    for (const name of fs.readdirSync(this.cacheDir)) {
-      try { fs.rmSync(path.join(this.cacheDir, name), { recursive: true, force: true }); } catch { /* in use */ }
-    }
   }
 }
 

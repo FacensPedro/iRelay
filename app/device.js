@@ -6,7 +6,7 @@ const usbmux = require('./usbmux');
 
 const SERVICE_PORT = 27093;
 
-function request(deviceId, method, path, { json, file, size, timeout = 120000 } = {}) {
+function request(deviceId, method, path, { json, file, size, data, timeout = 120000 } = {}) {
   return new Promise((resolve, reject) => {
     usbmux.connect(deviceId, SERVICE_PORT).then((socket) => {
       let body = null;
@@ -14,6 +14,9 @@ function request(deviceId, method, path, { json, file, size, timeout = 120000 } 
       if (json !== undefined) {
         body = Buffer.from(JSON.stringify(json), 'utf8');
         length = body.length;
+      } else if (data) {
+        body = data;
+        length = data.length;
       } else if (file) {
         length = size;
       }
@@ -65,6 +68,10 @@ function query(params) {
 
 module.exports = {
   info: (id) => request(id, 'GET', '/info', { timeout: 8000 }),
+  install: (id, body) => request(id, 'POST', '/install', { json: body, timeout: 60000 }),
+  installs: (id) => request(id, 'GET', '/installs', { timeout: 10000 }),
+  write: (id, root, relative, offset, size, sha, data) =>
+    request(id, 'PUT', `/write?${query({ root, path: relative, offset, size, sha })}`, { data, timeout: 120000 }),
   logs: (id) => request(id, 'GET', '/logs', { timeout: 30000 }),
   library: (id) => request(id, 'GET', '/library', { timeout: 120000 }),
   steamDLC: (id, appId) => request(id, 'POST', `/steam/dlc?app=${appId}`, { json: {}, timeout: 120000 }),
