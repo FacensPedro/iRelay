@@ -19,12 +19,16 @@
       <button class="nav-item" data-view="tasks"><svg viewBox="0 0 24 24"><path d="M12 3v10.6l3.3-3.3 1.4 1.4L12 16.4l-4.7-4.7 1.4-1.4 3.3 3.3V3h0Zm-8 15h16v2H4v-2Z"/></svg>Transfers<span class="count" id="count-tasks"></span></button>
       <button class="nav-item" data-view="about"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm-1 8v7h2v-7h-2Zm0-3v2h2V7h-2Z"/></svg>About</button>
     </nav>
-    <div class="device" id="device">
-      <div class="device-dot" id="device-dot"></div>
-      <div>
-        <div class="device-title" id="device-title">iPad</div>
-        <div class="device-text" id="device-text">Looking for your iPad…</div>
+    <div class="device-box">
+      <div class="nav-label">Connected device</div>
+      <div class="device" id="device">
+        <div class="device-dot" id="device-dot"></div>
+        <div class="device-info">
+          <div class="device-title" id="device-title">No device</div>
+          <div class="device-text" id="device-text">Looking for a connected device…</div>
+        </div>
       </div>
+      <select id="device-select" class="device-select hidden"></select>
     </div>
   </aside>
 
@@ -35,7 +39,7 @@
         <div class="segmented" id="filter">
           <button data-filter="all" class="active">All</button>
           <button data-filter="pc">On this PC</button>
-          <button data-filter="ipad">On iPad</button>
+          <button data-filter="ipad">On device</button>
         </div>
         <input id="search" type="search" placeholder="Search" autocomplete="off">
         <button class="icon-button" id="refresh" title="Reload library"><svg viewBox="0 0 24 24"><path d="M17.7 6.3A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.8-4.2L13 11h7V4l-2.3 2.3Z"/></svg></button>

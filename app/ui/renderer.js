@@ -79,10 +79,17 @@ function render() {
 function renderDevice() {
   const cable = state.cable || {};
   $('device-dot').className = `device-dot ${cable.status === 'connected' ? 'on' : cable.status === 'waiting' ? 'warn' : ''}`;
-  $('device-title').textContent = cable.device ? cable.device.name : 'iPad (USB)';
-  $('device-text').textContent = cable.device
-    ? `iDeck ${cable.device.version} · ${size(cable.device.freeBytes)} free`
-    : cable.message;
+  const info = cable.device;
+  $('device-title').textContent = info ? info.name : 'No device';
+  const model = info ? [info.model, info.iosVersion && `iOS ${info.iosVersion}`].filter(Boolean).join(' · ') : '';
+  $('device-text').textContent = cable.status === 'connected'
+    ? `${model} · iDeck ${info.version} · ${size(info.freeBytes)} free`
+    : [model, cable.message].filter(Boolean).join(' — ');
+  const select = $('device-select');
+  const devices = state.devices || [];
+  select.classList.toggle('hidden', devices.length < 2);
+  const options = devices.map((item) => `<option value="${esc(item.udid)}" ${item.udid === state.selected ? 'selected' : ''}>${esc(item.name)} (${esc(item.model)})</option>`).join('');
+  if (select.dataset.html !== options) { select.innerHTML = options; select.dataset.html = options; }
 }
 
 function renderGate() {
@@ -114,7 +121,7 @@ function emptyState(title, text) {
 function renderLibrary() {
   const store = view;
   if (!state.cable || state.cable.status !== 'connected') {
-    setContent(emptyState('Connect your iPad', state.cable ? state.cable.message : ''));
+    setContent(emptyState('Connect a device', state.cable ? state.cable.message : ''));
     return;
   }
   const library = state.library && state.library[store];
@@ -138,7 +145,7 @@ function renderLibrary() {
     const badges = [
       game.onPC ? '<span class="badge pc">PC</span>' : '',
       game.installingPC ? '<span class="badge busy">Installing</span>' : '',
-      game.onIPad ? '<span class="badge ipad">iPad</span>' : '',
+      game.onIPad ? '<span class="badge ipad">Device</span>' : '',
     ].join('');
     return `<button class="card" data-store="${store}" data-id="${esc(game.id)}">
       <div class="cover">${game.cover ? `<img src="${esc(game.cover)}" loading="lazy" alt="">` : ''}
@@ -177,20 +184,20 @@ function renderTasks() {
   const tasks = state.tasks || [];
   const relay = state.relay || [];
   if (!tasks.length && !relay.length) {
-    setContent(emptyState('No transfers yet', 'Installs on this PC and copies to your iPad appear here.'));
+    setContent(emptyState('No transfers yet', 'Installs on this PC and copies to the connected device appear here.'));
     return;
   }
   const relayHTML = relay.map((job) => `<div class="task"><div class="task-head"><div><div class="task-title">${esc(job.name)}</div>
-    <div class="task-meta">Download started in iDeck · ${Math.round(100 * job.downloaded / Math.max(1, job.total))}% on this PC · ${Math.round(100 * job.sent / Math.max(1, job.total))}% on iPad · ${size(job.bytes)}${job.failed ? ` · ${job.failed} failed` : ''}</div></div></div>
+    <div class="task-meta">Download started in iDeck · ${Math.round(100 * job.downloaded / Math.max(1, job.total))}% on this PC · ${Math.round(100 * job.sent / Math.max(1, job.total))}% on device · ${size(job.bytes)}${job.failed ? ` · ${job.failed} failed` : ''}</div></div></div>
     <div class="bar"><span style="width:${(100 * job.downloaded / Math.max(1, job.total)).toFixed(1)}%"></span><span class="sent" style="width:${(100 * job.sent / Math.max(1, job.total)).toFixed(1)}%"></span></div></div>`).join('');
   setContent(`<div class="tasks">${tasks.map(taskHTML).join('')}${relayHTML}</div>`);
 }
 
 function renderAbout() {
   setContent(`<div class="about">
-    <div class="panel"><h3>iRelay ${esc(state.version)}</h3><p>Installs your Steam, Epic Games and GOG games on this PC with their own launchers and copies them into iDeck over the USB cable. iRelay updates itself when it starts.</p></div>
+    <div class="panel"><h3>iRelay ${esc(state.version)}</h3><p>Installs your Steam, Epic Games and GOG games on this PC with their own launchers and copies them into iDeck on the connected device over USB. iRelay updates itself when it starts.</p></div>
     <div class="panel"><h3>Connection</h3><p>${esc(state.cable.message)}</p></div>
-    <div class="panel"><h3>Download cache</h3><p>Pieces downloaded for installs started in iDeck are removed once the iPad has them.</p>
+    <div class="panel"><h3>Download cache</h3><p>Pieces downloaded for installs started in iDeck are removed once the device has them.</p>
       <div style="margin-top:12px"><button class="secondary" id="clear-cache">Clear cache</button></div></div>
     <div class="panel"><h3>Source</h3><p><a href="#" id="source" class="link">github.com/FacensPedro/iRelay</a></p></div>
   </div>`);
@@ -216,9 +223,9 @@ function renderDrawer() {
   if (task) {
     actions = `<div class="task" style="margin:0">${taskHTML(task).replace(/^<div class="task">|<\/div>$/g, '')}</div>`;
   } else if (game.onPC) {
-    actions = `<button class="primary" data-action="send">${game.onIPad ? 'Update on iPad' : 'Copy to iPad'}</button>`;
+    actions = `<button class="primary" data-action="send">${game.onIPad ? 'Update on device' : 'Copy to device'}</button>`;
   } else {
-    actions = `<button class="primary" data-action="install-send">Install and copy to iPad</button>
+    actions = `<button class="primary" data-action="install-send">Install and copy to device</button>
       <button class="secondary" data-action="install">Install on this PC only</button>`;
   }
   let dlc = '';
@@ -227,10 +234,10 @@ function renderDrawer() {
     const local = game.local || { dlc: [] };
     dlc = `<div class="section-title">DLC</div>` + (list.length ? list.map((item) => {
       const onPC = (local.dlc || []).includes(item.appId);
-      const label = item.installed ? 'On iPad' : onPC ? 'Copy to iPad' : 'Install';
+      const label = item.installed ? 'On device' : onPC ? 'Copy to device' : 'Install';
       const disabled = item.installed || !game.onPC ? 'disabled' : '';
       return `<div class="dlc"><img src="${esc(steamArt(item.appId, 'header'))}" alt="" loading="lazy">
-        <div class="dlc-name"><div>${esc(item.name)}</div><div class="muted small">${onPC ? 'On this PC' : 'Not on this PC'}${item.installed ? ' · On iPad' : ''}</div></div>
+        <div class="dlc-name"><div>${esc(item.name)}</div><div class="muted small">${onPC ? 'On this PC' : 'Not on this PC'}${item.installed ? ' · On device' : ''}</div></div>
         <button class="secondary" data-dlc="${item.appId}" ${disabled}>${label}</button></div>`;
     }).join('') + (game.onPC ? '' : '<div class="note">Install the game on this PC to add its DLC.</div>')
       : `<div class="note">No DLC loaded. <button class="link" data-action="load-dlc">Load DLC</button></div>`);
@@ -240,10 +247,10 @@ function renderDrawer() {
     <div class="drawer-body"><h2>${esc(game.title)}</h2><div class="muted">${esc(store)}</div>
       <div class="status-row">
         <div class="status"><div class="label">This PC</div><div class="value ${game.onPC ? 'yes' : ''}">${esc(pcText)}</div></div>
-        <div class="status"><div class="label">iPad</div><div class="value ${game.onIPad ? 'yes' : ''}">${game.onIPad ? 'Installed' : 'Not installed'}</div></div>
+        <div class="status"><div class="label">Device</div><div class="value ${game.onIPad ? 'yes' : ''}">${game.onIPad ? 'Installed' : 'Not installed'}</div></div>
       </div>
       <div class="actions">${actions}</div>
-      <div class="note">${game.onPC ? 'Only files the iPad does not have yet are copied.' : `The game is installed by ${esc(launcher)} on this PC, then copied into iDeck.`}</div>
+      <div class="note">${game.onPC ? 'Only files the device does not have yet are copied.' : `The game is installed by ${esc(launcher)} on this PC, then copied into iDeck.`}</div>
       <div class="error" id="drawer-error"></div>
       ${dlc}
     </div>`;
@@ -308,6 +315,7 @@ document.querySelectorAll('#filter button').forEach((button) => {
 $('search').addEventListener('input', (event) => { query = event.target.value.trim().toLowerCase(); render(); });
 $('refresh').addEventListener('click', () => irelay.refresh());
 $('gate-button').addEventListener('click', () => irelay.openSteam());
+$('device-select').addEventListener('change', (event) => irelay.selectDevice(event.target.value));
 $('content').addEventListener('click', (event) => {
   const cancel = event.target.closest('[data-cancel]');
   if (cancel) { irelay.cancel(cancel.dataset.cancel); return; }

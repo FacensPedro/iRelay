@@ -11,5 +11,6 @@ contextBridge.exposeInMainWorld('irelay', {
   install: (request) => ipcRenderer.invoke('install', request),
   send: (request) => ipcRenderer.invoke('send', request),
   cancel: (id) => ipcRenderer.invoke('cancel', id),
+  selectDevice: (udid) => ipcRenderer.invoke('selectDevice', udid),
   clearCache: () => ipcRenderer.invoke('clearCache'),
 });

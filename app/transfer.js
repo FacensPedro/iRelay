@@ -57,10 +57,10 @@ async function sync(deviceId, root, folder, progress, cancelled) {
       }
       done += file.s;
       sent.push(file.p);
-      progress({ phase: 'Copying to iPad', done, total, file: file.p, files: sent.length, fileCount: todo.length });
+      progress({ phase: 'Copying to device', done, total, file: file.p, files: sent.length, fileCount: todo.length });
     }
   }
-  progress({ phase: 'Copying to iPad', done, total, files: 0, fileCount: todo.length });
+  progress({ phase: 'Copying to device', done, total, files: 0, fileCount: todo.length });
   await Promise.all([worker(), worker(), worker(), worker()]);
   return sent;
 }

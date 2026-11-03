@@ -1,21 +1,21 @@
 # iRelay
 
-iRelay is a Windows companion for [iDeck](https://github.com/FacensPedro/iDeck). It installs your **Steam**, **Epic Games** and **GOG** games on your PC with their own launchers and copies them into iDeck on your iPad over a **USB cable**.
+iRelay is a Windows companion for [iDeck](https://github.com/FacensPedro/iDeck). It installs your **Steam**, **Epic Games** and **GOG** games on your PC with their own launchers and copies them into iDeck on the connected device (iPad or iPhone) over a **USB cable**.
 
 ## Features
 
-- **Your libraries:** iRelay shows the Steam, Epic Games and GOG libraries iDeck is signed in to, and marks which games are on the PC and which are on the iPad.
+- **Your libraries:** iRelay shows the Steam, Epic Games and GOG libraries iDeck is signed in to, and marks which games are on the PC and which are on the connected device.
 - **Install and copy:** choose a game and iRelay installs it on the PC with Steam, the Epic Games Launcher or GOG Galaxy. When the install finishes, iRelay copies it into the right iDeck folder, and the game shows up in iDeck as installed.
-- **DLC:** for Steam games that are already installed on the PC, you can install a DLC and copy just its files to the iPad.
-- **Updates:** copying a game that is already on the iPad sends only the files that changed. Files that exist only on the iPad, such as saves and settings, are never deleted.
-- **Download relay:** when you start a Steam download in iDeck itself, the PC downloads the same pieces at its own speed. The iPad takes each piece over the cable as soon as it arrives.
+- **DLC:** for Steam games that are already installed on the PC, you can install a DLC and copy just its files to the device.
+- **Updates:** copying a game that is already on the device sends only the files that changed. Files that exist only on the device, such as saves and settings, are never deleted.
+- **Download relay:** when you start a Steam download in iDeck itself, the PC downloads the same pieces at its own speed. The device takes each piece over the cable as soon as it arrives.
 - **Automatic updates:** each time it starts, iRelay checks GitHub Releases and switches to the newest version. You never need to run an installer.
 
 ## Requirements
 
 - Windows 10 or 11 (64-bit).
 - The **Steam client running** on the PC. iRelay waits until Steam is open.
-- The **Apple Devices** app (Microsoft Store) or **iTunes**. iRelay uses Apple's device service to reach the iPad over USB.
+- The **Apple Devices** app (Microsoft Store) or **iTunes**. iRelay uses Apple's device service to reach the device over USB, the same requirement as [iloader](https://github.com/nab138/iloader).
 - **Epic Games Launcher** for Epic games and **GOG Galaxy** for GOG games.
 - iDeck with **Settings › Steam › iRelay** turned on.
 
@@ -23,18 +23,26 @@ iRelay is a Windows companion for [iDeck](https://github.com/FacensPedro/iDeck).
 
 1. Download `iRelay-<version>-win-x64.zip` from [Releases](../../releases) and extract it anywhere you like, for example `Documents\iRelay`.
 2. Start Steam, then run `iRelay.exe`.
-3. Connect the iPad with a USB cable, unlock it and tap **Trust**.
+3. Connect the device with a USB cable, unlock it and tap **Trust**. If several devices are connected, choose one under **Connected device**.
 4. In iDeck, open **Settings › Steam › iRelay** and turn on **Use iRelay (USB cable)**.
-5. In iRelay, pick a game and choose **Install and copy to iPad**.
+5. In iRelay, pick a game and choose **Install and copy to device**.
 
-Keep iDeck open on the iPad while a copy is running, because iPadOS pauses apps in the background.
+Keep iDeck open on the device while a copy is running, because iOS and iPadOS pause apps in the background.
 
 ## How it works
 
-iPadOS doesn't allow apps to open network connections over USB, so iRelay starts every connection itself. It goes through Apple's usbmux service (`127.0.0.1:27015`) to ports on the iPad where iDeck listens. These ports are only reachable from a PC the iPad trusts.
+iRelay connects the way [iloader](https://github.com/nab138/iloader) does (through the [idevice](https://github.com/jkcoxson/idevice) crate):
 
-| iPad port | Purpose |
+1. **usbmuxd:** Apple's device service (`127.0.0.1:27015`, from iTunes or the Apple Devices app) lists the devices connected by USB.
+2. **Pair record:** usbmuxd's pair record shows whether the device trusts this PC.
+3. **lockdownd:** port 62078 on the device returns its name, model and iOS version, which appear under **Connected device**.
+4. **iDeck:** the connection then goes to the ports where iDeck listens on the device.
+
+iOS doesn't allow apps to open network connections over USB, so iRelay starts every connection itself. The device's ports can be reached only from a PC that the device trusts.
+
+| Device port | Purpose |
 |---|---|
+| 62078 | lockdownd: device name, model and iOS version |
 | 27093 | iDeck's service: libraries, file listings, file uploads and install records |
 | 27091 | Connections iDeck uses to fetch download pieces from iRelay's local server (`127.0.0.1:27090`) |
 
