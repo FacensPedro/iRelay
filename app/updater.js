@@ -2,35 +2,16 @@
 // Updates iRelay without an installer: the newest release's application
 // archive (app-X.Y.Z.asar, checked against its SHA-256) is saved to
 // %APPDATA%\iRelay\versions and iRelay restarts into it (see shell/main.js).
-// Runs at start and from the Update button. A private repository's releases
-// need a GitHub token (About › GitHub token), kept encrypted by Windows.
+// Runs at start and from the Update button.
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('original-fs');
-const { app, safeStorage } = require('electron');
+const { app } = require('electron');
 
 const REPO = 'FacensPedro/iRelay';
 
-function tokenFile() { return path.join(app.getPath('userData'), 'github-token.bin'); }
-
-function getToken() {
-  try {
-    const data = fs.readFileSync(tokenFile());
-    return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(data) : '';
-  } catch { return ''; }
-}
-
-function setToken(token) {
-  const value = String(token || '').trim();
-  if (!value) { try { fs.unlinkSync(tokenFile()); } catch { /* none */ } return; }
-  if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows cannot encrypt the token on this PC.');
-  fs.mkdirSync(path.dirname(tokenFile()), { recursive: true });
-  fs.writeFileSync(tokenFile(), safeStorage.encryptString(value));
-}
-
 function headers(accept) {
-  const token = getToken();
-  return { 'User-Agent': 'iRelay', Accept: accept, ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+  return { 'User-Agent': 'iRelay', Accept: accept };
 }
 
 function newer(a, b) {
@@ -40,8 +21,7 @@ function newer(a, b) {
   return false;
 }
 
-/// An asset's bytes through the API (works for private repositories). The
-/// redirect to GitHub's storage is followed without the token.
+/// An asset's bytes through the API, following the redirect to GitHub's storage.
 async function asset(item, timeout) {
   const first = await fetch(item.url, { headers: headers('application/octet-stream'), redirect: 'manual', signal: AbortSignal.timeout(timeout) });
   let response = first;
@@ -59,9 +39,7 @@ async function check(current, status) {
   const response = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`,
     { headers: headers('application/vnd.github+json'), signal: AbortSignal.timeout(10000) });
   if (response.status === 404) {
-    throw new Error(getToken()
-      ? 'GitHub refused the token, or there is no release yet.'
-      : 'The repository is private: add a GitHub token in About, or make the repository public.');
+    throw new Error('No release found: the repository must be public for updates.');
   }
   if (!response.ok) throw new Error(`GitHub answered HTTP ${response.status}`);
   const release = await response.json();
@@ -99,4 +77,4 @@ function restart() {
   app.exit(0);
 }
 
-module.exports = { check, restart, getToken, setToken };
+module.exports = { check, restart };

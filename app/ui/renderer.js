@@ -203,17 +203,12 @@ function renderAbout() {
       <button class="secondary" id="open-program">Program folder</button>
       <button class="secondary" id="source">GitHub</button></div>
       ${update.message ? `<div class="update-note">${esc(update.message)}</div>` : ''}</div>
-    <div class="panel"><h3>GitHub token</h3><p>${update.hasToken ? 'Saved.' : 'Only for a private repository.'}</p>
-      <div class="token-row"><input id="token" type="password" placeholder="github_pat_…" autocomplete="off">
-      <button class="secondary" id="save-token">Save</button>${update.hasToken ? '<button class="secondary" id="remove-token">Remove</button>' : ''}</div></div>
   </div>`);
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
   on('about-update', () => irelay.checkUpdate());
   on('source', () => irelay.openExternal('https://github.com/FacensPedro/iRelay'));
   on('open-data', () => irelay.openFolder('data'));
   on('open-program', () => irelay.openFolder('program'));
-  on('save-token', () => { const value = $('token').value.trim(); if (value) irelay.setToken(value); });
-  on('remove-token', () => irelay.setToken(''));
 }
 
 // MARK: Bugs
@@ -237,13 +232,20 @@ function renderBugs() {
   const issues = data.issues || [];
   const list = issues.map((line) => `<div class="bug ${/error|fatal|crash|exception/i.test(line) ? 'err' : ''}">${esc(line)}</div>`).join('');
   // Lists start collapsed; their headers open them.
-  setContent(`<div class="bugs-bar"><button class="secondary" id="copy-bugs">Copy</button></div>
+  setContent(`<div class="bugs-bar"><button class="secondary" id="copy-bugs">Copy</button>
+    <button class="secondary" id="clear-bugs">Clear</button></div>
     ${issues.length ? `<button class="fold" id="fold-bugs">${bugsOpen ? '▾' : '▸'} Bugs (${issues.length})</button>
       ${bugsOpen ? `<div class="bugs">${list}</div>` : ''}` : emptyState('No bugs found', '')}
     ${data.log ? `<button class="fold" id="fold-log">${logOpen ? '▾' : '▸'} Log</button>${logOpen ? `<div class="logtail">${esc(data.log)}</div>` : ''}` : ''}`);
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
   on('copy-bugs', () => navigator.clipboard.writeText([...issues, '', data.log || ''].join('\n')));
   on('fold-bugs', () => { bugsOpen = !bugsOpen; lastGrid = ''; render(); });
+  on('clear-bugs', async () => {
+    try {
+      if (view === 'bugs-irelay') await irelay.clearIrelayBugs(); else await irelay.clearIdeckBugs();
+    } catch { /* shown on reload */ }
+    loadBugs(view);
+  });
   on('fold-log', () => { logOpen = !logOpen; lastGrid = ''; render(); });
 }
 
