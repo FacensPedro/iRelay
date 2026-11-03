@@ -33,23 +33,27 @@ jobs:
         run: |
           if [ -n "$SIGN_PFX" ]; then export CSC_LINK="$SIGN_PFX" CSC_KEY_PASSWORD="$SIGN_PFX_PASSWORD"; else export CSC_IDENTITY_AUTO_DISCOVERY=false; fi
           npm run build
-      # Starts the built iRelay.exe on Windows and fails when it does not open.
-      - name: Start test
+      # Installs iRelay silently and starts it on Windows; fails when it does not open.
+      - name: Install and start test
         shell: pwsh
         run: |
-          $exe = Resolve-Path dist/iRelay.exe
+          $setup = Resolve-Path dist/iRelay-Setup.exe
+          Start-Process -FilePath $setup -ArgumentList '/S', '/allusers' -Wait
+          $exe = Join-Path $env:ProgramFiles 'iRelay\iRelay.exe'
+          if (-not (Test-Path $exe)) { throw "iRelay was not installed at $exe" }
           $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test' -PassThru
           if (-not $process.WaitForExit(90000)) { Stop-Process -Id $process.Id -Force; $timedOut = $true }
           $log = Join-Path $env:APPDATA 'iRelay\irelay.log'
           if (Test-Path $log) { Get-Content $log } else { Write-Host 'no log written' }
           if ($timedOut -or -not (Select-String -Path $log -Pattern 'smoke test passed' -Quiet)) { throw 'iRelay did not open' }
+          (Get-MpPreference).ExclusionPath | Where-Object { $_ -like '*iRelay*' }
       - name: Package
         shell: pwsh
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
           "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
-          # The zip holds only iRelay.exe.
-          Compress-Archive -Path dist/iRelay.exe -DestinationPath "dist/iRelay-$version-win-x64.zip"
+          # The zip holds only the installer.
+          Compress-Archive -Path dist/iRelay-Setup.exe -DestinationPath "dist/iRelay-$version-win-x64.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: iRelay-win-x64

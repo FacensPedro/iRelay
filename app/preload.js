@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('irelay', {
   selectDevice: (udid) => ipcRenderer.invoke('selectDevice', udid),
   irelayBugs: () => ipcRenderer.invoke('irelayBugs'),
   ideckBugs: () => ipcRenderer.invoke('ideckBugs'),
+  openFolder: (which) => ipcRenderer.invoke('openFolder', which),
   checkUpdate: () => ipcRenderer.invoke('checkUpdate'),
   setToken: (token) => ipcRenderer.invoke('setToken', token),
 });

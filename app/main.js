@@ -32,6 +32,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     libraryError: null,
     installs: [],   // iDeck's own downloads (GET /installs)
     jobs: [],       // Steam downloads this PC processes for iDeck
+    dlcQueue: {},   // appId -> DLC to install once the game is on the device
   };
   let deviceId = null;
   let relay = null;
@@ -86,6 +87,25 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     return list.find((game) => game.appName === id);
   }
 
+  /// DLC chosen with a game: installed one at a time once the game is on the device.
+  async function runDLCQueue() {
+    for (const [key, list] of Object.entries(state.dlcQueue)) {
+      const appId = Number(key);
+      if (!list.length) { delete state.dlcQueue[key]; continue; }
+      const busy = state.installs.some((item) => item.store === 'steam' && Number(item.id) === appId && !item.error);
+      const game = libraryGame('steam', appId);
+      if (busy || !game || !game.installed) continue;
+      const dlcId = list.shift();
+      try {
+        await device.install(deviceId, { store: 'steam', appId, dlcId });
+        log(`DLC ${dlcId} of ${game.name} started after the game`);
+      } catch (error) {
+        log(`DLC ${dlcId} of ${game.name}: ${error.message}`);
+      }
+      return;
+    }
+  }
+
   async function pollInstalls() {
     if (processor) state.jobs = processor.list();
     if (!deviceId) { state.installs = []; push(); return; }
@@ -93,7 +113,8 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
       const wasActive = state.installs.some((item) => item.phase !== 'failed');
       state.installs = (await device.installs(deviceId)).installs || [];
       // A download just ended: the library shows it installed.
-      if (wasActive && !state.installs.some((item) => item.phase !== 'failed')) refreshLibrary();
+      if (wasActive && !state.installs.some((item) => item.phase !== 'failed')) await refreshLibrary();
+      if (Object.keys(state.dlcQueue).length) await runDLCQueue();
     } catch { /* next poll */ }
     push();
   }
@@ -199,6 +220,9 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     else body.appName = request.appName;
     await device.install(deviceId, body);
     log(`install started on the device: ${request.title || body.appId || body.id || body.appName}`);
+    if (request.store === 'steam' && Array.isArray(request.withDLC) && request.withDLC.length) {
+      state.dlcQueue[body.appId] = request.withDLC.map(Number);
+    }
     setTimeout(pollInstalls, 500);
   });
   // Bugs: iRelay's own log, and iDeck's (read from the device over the cable).
@@ -221,6 +245,10 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     return device.logs(deviceId);
   });
   // The Update button: the same update as at start, then a restart into it.
+  ipcMain.handle('openFolder', (_, which) => {
+    const folder = which === 'program' ? path.dirname(process.execPath) : app.getPath('userData');
+    return shell.openPath(folder);
+  });
   ipcMain.handle('checkUpdate', async () => {
     if (state.update.busy) return;
     state.update = { ...state.update, busy: true, message: 'Checking for updates…' };

@@ -169,21 +169,26 @@ function setContent(html) {
   });
 }
 
+const hidden = new Set();
+function itemKey(kind, item) { return kind === 'install' ? `i:${item.store}:${item.id}:${item.error || ''}` : `j:${item.id}`; }
+
 function renderTasks() {
-  const installs = state.installs || [];
-  const jobs = state.jobs || [];
+  const installs = (state.installs || []).filter((item) => !hidden.has(itemKey('install', item)));
+  const jobs = (state.jobs || []).filter((job) => !hidden.has(itemKey('job', job)));
   if (!installs.length && !jobs.length) {
     setContent(emptyState('No transfers yet', 'Downloads to the connected device appear here.'));
     return;
   }
   const installHTML = installs.map((item) => `<div class="task"><div class="task-head"><div><div class="task-title">${esc(item.title)}</div>
-    <div class="task-meta">${item.error ? `<span class="error">${esc(item.error)}</span>` : `${esc(TITLES[item.store] || item.store)} · ${esc(item.phase)} · ${percent(item)}%`}</div></div></div>
+    <div class="task-meta">${item.error ? `<span class="error">${esc(item.error)}</span>` : `${esc(TITLES[item.store] || item.store)} · ${esc(item.phase)} · ${percent(item)}%`}</div></div>
+    ${item.error ? `<button class="link" data-hide="${esc(itemKey('install', item))}" title="Remove">✕</button>` : ''}</div>
     <div class="bar"><span class="sent" style="width:${percent(item)}%"></span></div></div>`).join('');
   const jobHTML = jobs.map((job) => {
     const done = Math.round(100 * job.done / Math.max(1, job.total));
     const speed = job.seconds > 0 ? job.bytes / job.seconds : 0;
     return `<div class="task"><div class="task-head"><div><div class="task-title">${esc(job.name)}</div>
-      <div class="task-meta">Processed on this PC · ${done}% · ${size(job.bytes)} of ${size(job.totalBytes)}${job.finished ? '' : ` · ${size(speed)}/s`}${job.failed ? ` · ${job.failed} left to iDeck` : ''}</div></div></div>
+      <div class="task-meta">Processed on this PC · ${done}% · ${size(job.bytes)} of ${size(job.totalBytes)}${job.finished ? '' : ` · ${size(speed)}/s`}${job.failed ? ` · ${job.failed} left to iDeck` : ''}</div></div>
+      ${job.finished ? `<button class="link" data-hide="${esc(itemKey('job', job))}" title="Remove">✕</button>` : ''}</div>
       <div class="bar"><span style="width:${done}%"></span></div></div>`;
   }).join('');
   setContent(`<div class="tasks">${installHTML}${jobHTML}</div>`);
@@ -194,6 +199,8 @@ function renderAbout() {
   setContent(`<div class="about">
     <div class="panel"><h3>iRelay ${esc(state.version)}</h3><p>${esc(state.cable.message)}</p>
       <div class="bugs-bar" style="margin:12px 0 0"><button class="primary" id="about-update" ${update.busy ? 'disabled' : ''}>Update iRelay</button>
+      <button class="secondary" id="open-data">iRelay folder</button>
+      <button class="secondary" id="open-program">Program folder</button>
       <button class="secondary" id="source">GitHub</button></div>
       ${update.message ? `<div class="update-note">${esc(update.message)}</div>` : ''}</div>
     <div class="panel"><h3>GitHub token</h3><p>${update.hasToken ? 'Saved.' : 'Only for a private repository.'}</p>
@@ -203,6 +210,8 @@ function renderAbout() {
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
   on('about-update', () => irelay.checkUpdate());
   on('source', () => irelay.openExternal('https://github.com/FacensPedro/iRelay'));
+  on('open-data', () => irelay.openFolder('data'));
+  on('open-program', () => irelay.openFolder('program'));
   on('save-token', () => { const value = $('token').value.trim(); if (value) irelay.setToken(value); });
   on('remove-token', () => irelay.setToken(''));
 }
@@ -219,24 +228,29 @@ async function loadBugs(kind) {
   render();
 }
 
+let bugsOpen = false;
+let logOpen = false;
 function renderBugs() {
   const data = bugs[view];
   if (!data) { setContent(emptyState('Reading logs…', '')); return; }
   if (data.error) { setContent(emptyState('Logs unavailable', data.error)); return; }
   const issues = data.issues || [];
-  const list = issues.length
-    ? issues.map((line) => `<div class="bug ${/error|fatal|crash|exception/i.test(line) ? 'err' : ''}">${esc(line)}</div>`).join('')
-    : emptyState('No bugs found', '');
+  const list = issues.map((line) => `<div class="bug ${/error|fatal|crash|exception/i.test(line) ? 'err' : ''}">${esc(line)}</div>`).join('');
+  // Lists start collapsed; their headers open them.
   setContent(`<div class="bugs-bar"><button class="secondary" id="copy-bugs">Copy</button></div>
-    <div class="bugs">${list}</div>
-    ${data.log ? `<div class="section-title">Log</div><div class="logtail">${esc(data.log)}</div>` : ''}`);
-  const copy = $('copy-bugs');
-  if (copy) copy.onclick = () => navigator.clipboard.writeText([...issues, '', data.log || ''].join('\n'));
+    ${issues.length ? `<button class="fold" id="fold-bugs">${bugsOpen ? '▾' : '▸'} Bugs (${issues.length})</button>
+      ${bugsOpen ? `<div class="bugs">${list}</div>` : ''}` : emptyState('No bugs found', '')}
+    ${data.log ? `<button class="fold" id="fold-log">${logOpen ? '▾' : '▸'} Log</button>${logOpen ? `<div class="logtail">${esc(data.log)}</div>` : ''}` : ''}`);
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  on('copy-bugs', () => navigator.clipboard.writeText([...issues, '', data.log || ''].join('\n')));
+  on('fold-bugs', () => { bugsOpen = !bugsOpen; lastGrid = ''; render(); });
+  on('fold-log', () => { logOpen = !logOpen; lastGrid = ''; render(); });
 }
 
 // MARK: Drawer
 
 let drawerKey = '';
+const picked = new Set();   // DLC chosen to install with the game
 function renderDrawer() {
   const drawer = $('drawer');
   if (!selected) { drawer.classList.add('hidden'); drawerKey = ''; return; }
@@ -250,15 +264,22 @@ function renderDrawer() {
   } else {
     actions = `<button class="primary" data-action="install">${game.onIPad ? 'Update on device' : 'Install on device'}</button>`;
   }
+  const queued = (state.dlcQueue || {})[game.id] || [];
   let dlc = '';
   if (game.store === 'steam') {
     const list = game.raw.dlc || [];
     dlc = '<div class="section-title">DLC</div>' + (list.length ? list.map((item) => {
-      const disabled = item.installed || !game.onIPad || game.download ? 'disabled' : '';
+      let control;
+      if (item.installed) control = '<button class="secondary" disabled>Installed</button>';
+      else if (queued.includes(item.appId)) control = '<button class="secondary" disabled>Queued</button>';
+      else if (!game.onIPad) {
+        // Chosen DLC install right after the game.
+        control = `<label class="dlc-pick"><input type="checkbox" data-pick="${item.appId}" ${picked.has(item.appId) ? 'checked' : ''}> With the game</label>`;
+      } else control = `<button class="secondary" data-dlc="${item.appId}" ${game.download ? 'disabled' : ''}>Install</button>`;
       return `<div class="dlc"><img src="${esc(steamArt(item.appId, 'header'))}" alt="" loading="lazy">
         <div class="dlc-name"><div>${esc(item.name)}</div><div class="muted small">${item.installed ? 'On device' : 'Not installed'}</div></div>
-        <button class="secondary" data-dlc="${item.appId}" ${disabled}>${item.installed ? 'Installed' : 'Install'}</button></div>`;
-    }).join('') + (game.onIPad ? '' : '<div class="note">Install the game first to add its DLC.</div>')
+        ${control}</div>`;
+    }).join('')
       : '<div class="note">No DLC loaded. <button class="link" data-action="load-dlc">Load DLC</button></div>');
   }
   const html = `<div class="hero" style="background-image:url('${esc(game.hero || '')}')"></div>
@@ -300,7 +321,7 @@ async function act(action, extra = {}) {
   try {
     if (action === 'close') { selected = null; render(); return; }
     if (action === 'load-dlc') { await irelay.steamDLC(game.id); return; }
-    if (action === 'install') await irelay.install(request(game));
+    if (action === 'install') await irelay.install({ ...request(game), withDLC: game.store === 'steam' && !game.onIPad ? [...picked] : [] });
     if (action === 'dlc') await irelay.install({ ...request(game), dlcId: extra.dlc });
     view = 'tasks';
     document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
@@ -336,9 +357,12 @@ $('refresh').addEventListener('click', () => (view.startsWith('bugs-') ? loadBug
 $('update-button').addEventListener('click', () => irelay.checkUpdate());
 $('device-select').addEventListener('change', (event) => irelay.selectDevice(event.target.value));
 $('content').addEventListener('click', (event) => {
+  const hide = event.target.closest('[data-hide]');
+  if (hide) { hidden.add(hide.dataset.hide); lastGrid = ''; render(); return; }
   const card = event.target.closest('.card');
   if (!card) return;
   selected = { store: card.dataset.store, id: card.dataset.id };
+  picked.clear();
   drawerKey = '';
   render();
   if (selected.store === 'steam') {
@@ -349,6 +373,8 @@ $('content').addEventListener('click', (event) => {
 $('drawer').addEventListener('click', (event) => {
   const action = event.target.closest('[data-action]');
   if (action) { act(action.dataset.action); return; }
+  const pick = event.target.closest('[data-pick]');
+  if (pick) { const id = Number(pick.dataset.pick); if (pick.checked) picked.add(id); else picked.delete(id); return; }
   const dlc = event.target.closest('[data-dlc]');
   if (dlc) act('dlc', { dlc: Number(dlc.dataset.dlc) });
 });

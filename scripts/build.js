@@ -1,6 +1,6 @@
 'use strict';
 // Builds iRelay for Windows x64:
-//   dist/iRelay.exe                 one program file (no installer, nothing next to it)
+//   dist/iRelay-Setup.exe           the installer
 //   dist/app-<version>.asar         the application archive used by updates
 //   dist/app-<version>.asar.sha256  its checksum
 const fs = require('fs');
