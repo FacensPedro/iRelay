@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>iRelay</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="titlebar"><span class="brand-mark"></span><span>iRelay</span><span id="version" class="muted small"></span></div>
+
+  <aside class="sidebar">
+    <nav>
+      <div class="nav-label">Library</div>
+      <button class="nav-item active" data-view="steam"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-9.95 9.1l5.35 2.2a2.8 2.8 0 0 1 1.6-.5h.15l2.4-3.45v-.05a3.8 3.8 0 1 1 3.8 3.8h-.08l-3.4 2.45v.12a2.85 2.85 0 0 1-5.65.5L2.4 14.6A10 10 0 1 0 12 2Z"/></svg>Steam<span class="count" id="count-steam"></span></button>
+      <button class="nav-item" data-view="epic"><svg viewBox="0 0 24 24"><path d="M5 2h14v16l-7 4-7-4V2Zm3 4v8h6v-2h-4v-1h3V9h-3V8h4V6H8Z"/></svg>Epic Games<span class="count" id="count-epic"></span></button>
+      <button class="nav-item" data-view="gog"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path fill="#000" d="M8 9h4v2H9v2h3v-1h-1v-1h2v3H8V9Zm6 0h3v5h-3V9Zm1 1v3h1v-3h-1Z"/></svg>GOG<span class="count" id="count-gog"></span></button>
+      <div class="nav-label">Activity</div>
+      <button class="nav-item" data-view="tasks"><svg viewBox="0 0 24 24"><path d="M12 3v10.6l3.3-3.3 1.4 1.4L12 16.4l-4.7-4.7 1.4-1.4 3.3 3.3V3h0Zm-8 15h16v2H4v-2Z"/></svg>Transfers<span class="count" id="count-tasks"></span></button>
+      <button class="nav-item" data-view="about"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm-1 8v7h2v-7h-2Zm0-3v2h2V7h-2Z"/></svg>About</button>
+    </nav>
+    <div class="device" id="device">
+      <div class="device-dot" id="device-dot"></div>
+      <div>
+        <div class="device-title" id="device-title">iPad</div>
+        <div class="device-text" id="device-text">Looking for your iPad…</div>
+      </div>
+    </div>
+  </aside>
+
+  <main>
+    <header class="toolbar">
+      <h1 id="view-title">Steam</h1>
+      <div class="toolbar-right">
+        <div class="segmented" id="filter">
+          <button data-filter="all" class="active">All</button>
+          <button data-filter="pc">On this PC</button>
+          <button data-filter="ipad">On iPad</button>
+        </div>
+        <input id="search" type="search" placeholder="Search" autocomplete="off">
+        <button class="icon-button" id="refresh" title="Reload library"><svg viewBox="0 0 24 24"><path d="M17.7 6.3A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.8-4.2L13 11h7V4l-2.3 2.3Z"/></svg></button>
+      </div>
+    </header>
+    <section id="content" class="content"></section>
+  </main>
+
+  <div id="drawer" class="drawer hidden"></div>
+
+  <div id="gate" class="gate hidden">
+    <div class="gate-card">
+      <div class="gate-icon"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-9.95 9.1l5.35 2.2a2.8 2.8 0 0 1 1.6-.5h.15l2.4-3.45v-.05a3.8 3.8 0 1 1 3.8 3.8h-.08l-3.4 2.45v.12a2.85 2.85 0 0 1-5.65.5L2.4 14.6A10 10 0 1 0 12 2Z"/></svg></div>
+      <h2 id="gate-title">Steam is not running</h2>
+      <p id="gate-text">iRelay installs games through the Steam client on this PC. Open Steam and sign in; iRelay continues automatically.</p>
+      <button class="primary" id="gate-button">Open Steam</button>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
