@@ -143,12 +143,41 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
         progress({ phase: 'Finishing' });
         await device.finish(deviceId, { store: 'gog', title: pc.title });
       }
+      // The game is on the device now: its files on this PC are removed.
+      progress({ phase: 'Removing from this PC' });
+      await removeFromPC(job);
       Object.assign(task, { phase: 'On the device', finished: true, done: task.total });
       refreshLibrary();
     } catch (error) {
       Object.assign(task, { phase: 'Failed', error: error.message, finished: true });
+      log(`copy failed: ${job.title}: ${error.message}`);
     }
     push();
+  }
+
+  /// Deletes a copied game from this PC: its folder and the launcher's install
+  /// record (Steam's appmanifest, Epic's manifest item). GOG's registry entry
+  /// points at a folder that is gone, which iRelay then ignores.
+  async function removeFromPC(job) {
+    try {
+      if (job.store === 'steam') {
+        const pc = (await steam.installed())[job.appId];
+        if (!pc) return;
+        await fs.promises.rm(pc.folder, { recursive: true, force: true });
+        await fs.promises.rm(pc.acfPath, { force: true });
+      } else if (job.store === 'epic') {
+        const pc = epic.installed()[job.appName];
+        if (!pc) return;
+        await fs.promises.rm(pc.folder, { recursive: true, force: true });
+        if (pc.itemPath) await fs.promises.rm(pc.itemPath, { force: true });
+      } else if (job.store === 'gog') {
+        const pc = (await gog.installed())[job.id];
+        if (pc) await fs.promises.rm(pc.folder, { recursive: true, force: true });
+      }
+      log(`removed from this PC after copying: ${job.title}`);
+    } catch (error) {
+      log(`could not remove ${job.title} from this PC: ${error.message}`);
+    }
   }
 
   function libraryGame(store, id) {
@@ -329,6 +358,20 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     chosen = udid;
     try { fs.writeFileSync(choiceFile, JSON.stringify({ udid })); } catch { /* not remembered */ }
     pollCable();
+  });
+  // Bugs: iRelay's own log, and iDeck's (read from the device over the cable).
+  ipcMain.handle('irelayBugs', () => {
+    let text = '';
+    try { text = fs.readFileSync(path.join(app.getPath('userData'), 'irelay.log'), 'utf8'); } catch { /* none yet */ }
+    const lines = text.split(/\r?\n/).filter(Boolean);
+    const issues = [...new Set(lines.filter((line) => /fatal|error|failed|refused|could not|cannot|timeout/i.test(line))
+      .map((line) => line.replace(/^\S+Z /, '')))].reverse().slice(0, 300);
+    for (const task of state.tasks) if (task.error) issues.unshift(`${task.title}: ${task.error}`);
+    return { issues, log: lines.slice(-300).join('\n') };
+  });
+  ipcMain.handle('ideckBugs', async () => {
+    if (!deviceId) throw new Error('Connect a device with iDeck first.');
+    return device.logs(deviceId);
   });
   ipcMain.handle('clearCache', () => relay && relay.clearCache());
 

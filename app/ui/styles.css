@@ -195,3 +195,17 @@ button:disabled { opacity: 0.45; cursor: default; }
   border: 1px solid var(--line); background: var(--panel); color: var(--text); outline: none;
 }
 .device-select.hidden { display: none; }
+
+.nav-logo { width: 18px; height: 18px; object-fit: contain; flex: none; opacity: 0.85; }
+.nav-item.active .nav-logo, .nav-item:hover .nav-logo { opacity: 1; }
+.card-meta { margin-top: 2px; min-height: 16px; font-size: 11px; color: var(--faint); display: flex; gap: 8px; }
+.card-meta .pc { color: #93c5fd; }
+.card-meta .ipad { color: #86efac; }
+.card-meta .busy { color: #fcd34d; }
+.bugs { display: grid; gap: 8px; max-width: 980px; }
+.bug { padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+  font: 12px/1.45 Consolas, "Cascadia Mono", monospace; color: var(--text); user-select: text; word-break: break-word; }
+.bug.err { border-color: rgba(239, 68, 68, 0.35); }
+.bugs-bar { display: flex; gap: 8px; margin-bottom: 12px; }
+.logtail { white-space: pre-wrap; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+  font: 11px/1.5 Consolas, monospace; color: var(--muted); max-height: 420px; overflow: auto; user-select: text; }

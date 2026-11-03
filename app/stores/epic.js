@@ -29,6 +29,7 @@ class Epic {
         canRunOffline: item.bCanRunOffline !== false,
         requiresOwnershipToken: String(item.OwnershipToken || 'false').toLowerCase() === 'true',
         complete: !item.bIsIncompleteInstall && fs.existsSync(item.InstallLocation),
+        itemPath: path.join(MANIFESTS, name),
       };
     }
     return result;
