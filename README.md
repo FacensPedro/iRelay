@@ -11,7 +11,7 @@ iRelay is a Windows companion for [iDeck](https://github.com/FacensPedro/iDeck).
 - **Frees the PC:** once a game is on the device, iRelay deletes its files and install record from the PC.
 - **Bugs:** **iRelay bugs** lists problems from iRelay's log. **iDeck bugs** reads the problems iDeck found on the connected device.
 - **Download relay:** when you start a Steam download in iDeck itself, the PC downloads the same pieces at its own speed. The device takes each piece over the cable as soon as it arrives.
-- **Automatic updates:** each time it starts, iRelay checks GitHub Releases and switches to the newest version. You never need to run an installer.
+- **Automatic updates:** each time it starts, iRelay checks GitHub Releases and switches to the newest version. You never need to run an installer. This needs the repository to be public, because GitHub hides a private repository's releases.
 
 ## Requirements
 
@@ -23,7 +23,7 @@ iRelay is a Windows companion for [iDeck](https://github.com/FacensPedro/iDeck).
 
 ## Getting started
 
-1. Download `iRelay-<version>-win-x64.zip` from [Releases](../../releases). Right-click it, choose **Extract All…** and pick a folder such as `Documents\iRelay`. Don't run `iRelay.exe` from inside the zip, because it needs the files next to it.
+1. Download `iRelay-<version>-win-x64.zip` from [Releases](../../releases) and take `iRelay.exe` out of it. It is the whole program, so you can keep it anywhere.
 2. Start Steam, then run `iRelay.exe`.
 3. Connect the device with a USB cable, unlock it and tap **Trust**. If several devices are connected, choose one under **Connected device**.
 4. In iDeck, open **Settings › iRelay** and turn on **Use iRelay (USB cable)**.
@@ -64,7 +64,7 @@ If iRelay doesn't open, check `%APPDATA%\iRelay\irelay.log`, where iRelay record
 
 iRelay is built so that Microsoft Defender has nothing suspicious to flag:
 
-- **Unmodified Electron:** it is a standard Electron app (Node.js 20) shipped as a plain folder, with no self-extracting archive and no installer.
+- **Unmodified Electron:** it is a standard Electron app (Node.js 20) packed into one portable `iRelay.exe` by electron-builder, with no installer.
 - **Visible behaviour:** it changes no system settings, adds no antivirus exclusions and runs no hidden scripts. It only reads Steam's, Epic's and GOG's install records and the registry keys that point to them (`reg query`), and checks whether Steam is running (`tasklist`).
 - **Verified updates:** updates are downloaded only from this repository's releases and checked against a SHA-256 checksum before use.
 
@@ -80,7 +80,7 @@ npm run check
 npm run build
 ```
 
-`dist/iRelay-win32-x64` is the program folder. `dist/app-<version>.asar` (with its `.sha256`) is the archive the updater downloads. Raising `version` in `package.json` on `main` publishes a new release automatically.
+`dist/iRelay.exe` is the program. `dist/app-<version>.asar` (with its `.sha256`) is the archive the updater downloads. Raising `version` in `package.json` on `main` publishes a new release automatically.
 
 ## License
 

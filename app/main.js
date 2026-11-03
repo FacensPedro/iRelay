@@ -373,7 +373,9 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     if (!deviceId) throw new Error('Connect a device with iDeck first.');
     return device.logs(deviceId);
   });
-  ipcMain.handle('clearCache', () => relay && relay.clearCache());
+  ipcMain.handle('clearCache', () => {
+    try { if (relay) relay.clearCache(); } catch (error) { log(`clear cache: ${error.message}`); }
+  });
 
   // MARK: Start
 
@@ -397,7 +399,8 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
         log(`update check skipped: ${error.message}`);
       }
     }
-    relay = new Relay(path.join(app.getPath('userData'), 'cache'), push);
+    // Not 'cache': on Windows that is Chromium's own Cache folder (names ignore case).
+    relay = new Relay(path.join(app.getPath('userData'), 'relay-chunks'), push);
     try { relay.start(); } catch (error) { log(`relay not started: ${error.message}`); }
     state.ready = true;
     state.boot = '';
