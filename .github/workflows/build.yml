@@ -25,7 +25,7 @@ jobs:
       - name: Start test
         shell: pwsh
         run: |
-          $exe = Resolve-Path dist/iRelay-win32-x64/iRelay.exe
+          $exe = Resolve-Path dist/iRelay.exe
           $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test' -PassThru
           if (-not $process.WaitForExit(90000)) { Stop-Process -Id $process.Id -Force; $timedOut = $true }
           $log = Join-Path $env:APPDATA 'iRelay\irelay.log'
@@ -36,7 +36,8 @@ jobs:
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
           "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Compress-Archive -Path dist/iRelay-win32-x64/* -DestinationPath "dist/iRelay-$version-win-x64.zip"
+          # The zip holds only iRelay.exe.
+          Compress-Archive -Path dist/iRelay.exe -DestinationPath "dist/iRelay-$version-win-x64.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: iRelay-win-x64

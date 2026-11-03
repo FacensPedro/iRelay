@@ -231,8 +231,9 @@ class Relay {
   clearCache() {
     for (const job of this.jobs) job.cancelled = true;
     this.queue = [];
-    fs.rmSync(this.cacheDir, { recursive: true, force: true });
-    fs.mkdirSync(this.cacheDir, { recursive: true });
+    for (const name of fs.readdirSync(this.cacheDir)) {
+      try { fs.rmSync(path.join(this.cacheDir, name), { recursive: true, force: true }); } catch { /* in use */ }
+    }
   }
 }
 
