@@ -4,13 +4,19 @@ Programa para Windows que baixa jogos da Steam no PC e envia ao [iDeck](https://
 
 ## Como funciona
 
-1. Abra o iRelay no PC. A janela mostra o endereço do PC e um código de pareamento.
-2. No iDeck: **Ajustes › Steam › iRelay** — ative, digite o endereço e o código e toque em **Testar conexão**.
+1. Instale no PC o app **Apple Devices** (Microsoft Store) ou o iTunes — o iRelay usa o serviço de dispositivos da Apple para falar com o iPad pelo cabo.
+2. Conecte o iPad ao PC com o cabo USB e toque em **Confiar** no iPad.
+3. Abra o iRelay no PC. A janela mostra o estado do cabo e um código de pareamento.
+4. No iDeck: **Ajustes › Steam › iRelay** — ative, escolha **Conexão: Cabo USB**, digite o código e toque em **Testar conexão**.
 3. Instale um jogo da Steam no iDeck normalmente. O iDeck envia ao iRelay a lista de pedaços que ainda faltam; o PC começa a baixar todos na velocidade dele e o iDeck pega cada pedaço do PC assim que chega.
 
 - O iRelay não precisa da sua conta Steam: ele baixa dos mesmos servidores de conteúdo que o iDeck usa, com a autorização que o iDeck envia. Os pedaços ficam criptografados no PC; quem confere e descriptografa é o iDeck.
 - Se o PC parar de responder, o iDeck continua baixando da Steam sozinho.
 - Por padrão cada pedaço é apagado do PC depois de enviado ao iDeck.
+
+### Cabo USB
+
+O iOS não deixa apps abrirem rede pelo cabo, então a conexão é ao contrário: o iRelay abre, pelo usbmux da Apple (127.0.0.1:27015), algumas conexões até a porta 27091 do iPad; o iDeck usa cada uma para um pedido e o iRelay liga a outra ponta ao seu servidor. Wi‑Fi continua disponível como opção (digite o endereço mostrado na janela).
 
 ## Botão "Ignorar Windows Defender"
 
