@@ -59,6 +59,7 @@ function render() {
   if (!state) return;
   $('version').textContent = `v${state.version}`;
   renderDevice();
+  renderUpdate();
   renderGate();
   for (const store of ['steam', 'epic', 'gog']) {
     const count = games(store).length;
@@ -80,6 +81,13 @@ function render() {
   else if (view.startsWith('bugs-')) renderBugs();
   else renderAbout();
   renderDrawer();
+}
+
+function renderUpdate() {
+  const update = state.update || {};
+  $('update-button').disabled = !!update.busy || !state.ready;
+  $('update-text').textContent = update.busy ? (update.message || 'Updating…') : 'Update iRelay';
+  $('update-button').title = update.message || '';
 }
 
 function renderDevice() {
@@ -194,15 +202,23 @@ function renderTasks() {
 }
 
 function renderAbout() {
+  const update = state.update || {};
   setContent(`<div class="about">
     <div class="panel"><h3>iRelay ${esc(state.version)}</h3><p>${esc(state.cable.message)}</p>
-      <div class="bugs-bar" style="margin:12px 0 0"><button class="secondary" id="clear-cache">Clear cache</button>
-      <button class="secondary" id="source">GitHub</button></div></div>
+      <div class="bugs-bar" style="margin:12px 0 0"><button class="primary" id="about-update" ${update.busy ? 'disabled' : ''}>Update iRelay</button>
+      <button class="secondary" id="clear-cache">Clear cache</button>
+      <button class="secondary" id="source">GitHub</button></div>
+      ${update.message ? `<div class="update-note">${esc(update.message)}</div>` : ''}</div>
+    <div class="panel"><h3>GitHub token</h3><p>${update.hasToken ? 'Saved.' : 'Only for a private repository.'}</p>
+      <div class="token-row"><input id="token" type="password" placeholder="github_pat_…" autocomplete="off">
+      <button class="secondary" id="save-token">Save</button>${update.hasToken ? '<button class="secondary" id="remove-token">Remove</button>' : ''}</div></div>
   </div>`);
-  const clear = $('clear-cache');
-  if (clear) clear.onclick = () => irelay.clearCache();
-  const source = $('source');
-  if (source) source.onclick = () => irelay.openExternal('https://github.com/FacensPedro/iRelay');
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  on('about-update', () => irelay.checkUpdate());
+  on('clear-cache', () => irelay.clearCache());
+  on('source', () => irelay.openExternal('https://github.com/FacensPedro/iRelay'));
+  on('save-token', () => { const value = $('token').value.trim(); if (value) irelay.setToken(value); });
+  on('remove-token', () => irelay.setToken(''));
 }
 
 // MARK: Bugs
@@ -341,6 +357,7 @@ document.querySelectorAll('#filter button').forEach((button) => {
 $('search').addEventListener('input', (event) => { query = event.target.value.trim().toLowerCase(); render(); });
 $('refresh').addEventListener('click', () => (view.startsWith('bugs-') ? loadBugs(view) : irelay.refresh()));
 $('gate-button').addEventListener('click', () => irelay.openSteam());
+$('update-button').addEventListener('click', () => irelay.checkUpdate());
 $('device-select').addEventListener('change', (event) => irelay.selectDevice(event.target.value));
 $('content').addEventListener('click', (event) => {
   const cancel = event.target.closest('[data-cancel]');

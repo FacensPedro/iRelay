@@ -26,6 +26,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   const state = {
     version: VERSION,
     boot: 'Starting…',
+    update: { busy: false, message: '', hasToken: false },
     ready: false,
     steamRunning: null,
     cable: { status: 'searching', message: 'Looking for a connected device…', device: null },
@@ -378,6 +379,32 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     if (!deviceId) throw new Error('Connect a device with iDeck first.');
     return device.logs(deviceId);
   });
+  // The Update button: the same update as at start, then a restart into it.
+  ipcMain.handle('checkUpdate', async () => {
+    if (state.update.busy) return;
+    state.update = { ...state.update, busy: true, message: 'Checking for updates…' };
+    push();
+    try {
+      const result = await updater.check(VERSION, (text) => { state.update.message = text; push(); });
+      if (result.installed) {
+        state.update.message = `Restarting into iRelay ${result.installed}…`;
+        push();
+        log(`updated to ${result.installed} (Update button); restarting`);
+        setTimeout(() => updater.restart(), 800);
+        return;
+      }
+      state.update = { ...state.update, busy: false, message: `iRelay ${VERSION} is the latest version.` };
+    } catch (error) {
+      log(`update failed: ${error.message}`);
+      state.update = { ...state.update, busy: false, message: error.message };
+    }
+    push();
+  });
+  ipcMain.handle('setToken', (_, token) => {
+    updater.setToken(token);
+    state.update = { ...state.update, hasToken: !!updater.getToken(), message: token ? 'Token saved.' : 'Token removed.' };
+    push();
+  });
   ipcMain.handle('clearCache', () => {
     try { if (relay) relay.clearCache(); } catch (error) { log(`clear cache: ${error.message}`); }
   });
@@ -390,21 +417,21 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     log(`iRelay ${VERSION} ready`);
     if (app.isPackaged && !SMOKE) {
       try {
-        const installed = await updater.check(VERSION, status);
-        if (installed) {
-          status(`Restarting into iRelay ${installed}…`);
-          // Release the single-instance lock first, or the new copy would see
-          // this one and quit at once.
-          log(`updated to ${installed}; restarting`);
-          setTimeout(() => { app.releaseSingleInstanceLock(); app.relaunch(); app.exit(0); }, 600);
+        const result = await updater.check(VERSION, status);
+        if (result.installed) {
+          status(`Restarting into iRelay ${result.installed}…`);
+          log(`updated to ${result.installed}; restarting`);
+          setTimeout(() => updater.restart(), 600);
           return;
         }
       } catch (error) {
         // Offline or GitHub unreachable: start this version.
         log(`update check skipped: ${error.message}`);
+        state.update.message = error.message;
       }
     }
     // Not 'cache': on Windows that is Chromium's own Cache folder (names ignore case).
+    state.update.hasToken = !!updater.getToken();
     relay = new Relay(path.join(app.getPath('userData'), 'relay-chunks'), push);
     try { relay.start(); } catch (error) { log(`relay not started: ${error.message}`); }
     state.ready = true;

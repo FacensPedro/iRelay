@@ -11,7 +11,7 @@ iRelay is a Windows companion for [iDeck](https://github.com/FacensPedro/iDeck).
 - **Frees the PC:** once a game is on the device, iRelay deletes its files and install record from the PC.
 - **Bugs:** **iRelay bugs** lists problems from iRelay's log. **iDeck bugs** reads the problems iDeck found on the connected device.
 - **Download relay:** when you start a Steam download in iDeck itself, the PC downloads the same pieces at its own speed. The device takes each piece over the cable as soon as it arrives.
-- **Automatic updates:** each time it starts, iRelay checks GitHub Releases and switches to the newest version. You never need to run an installer. This needs the repository to be public, because GitHub hides a private repository's releases.
+- **Automatic updates:** each time it starts, iRelay checks GitHub Releases and switches to the newest version. You never need to run an installer. For a private repository, add a GitHub token in About.
 
 ## Requirements
 
@@ -62,13 +62,19 @@ If iRelay doesn't open, check `%APPDATA%\iRelay\irelay.log`, where iRelay record
 
 ## Antivirus
 
-iRelay is built so that Microsoft Defender has nothing suspicious to flag:
+iRelay keeps clear of the behaviour antivirus programs look for. It changes no system settings, adds no exclusions, runs no hidden scripts and asks for no administrator rights. Its only reads are Steam's, Epic's and GOG's install records (`reg query`), and it checks whether Steam is running (`tasklist`). Updates come only from this repository's releases and are checked against a SHA-256 checksum.
 
-- **Unmodified Electron:** it is a standard Electron app (Node.js 20) packed into one portable `iRelay.exe` by electron-builder, with no installer.
-- **Visible behaviour:** it changes no system settings, adds no antivirus exclusions and runs no hidden scripts. It only reads Steam's, Epic's and GOG's install records and the registry keys that point to them (`reg query`), and checks whether Steam is running (`tasklist`).
-- **Verified updates:** updates are downloaded only from this repository's releases and checked against a SHA-256 checksum before use.
+An unsigned program is still unknown to Microsoft, so:
 
-If SmartScreen warns about an unknown publisher, choose **More info › Run anyway**. Builds are not code-signed yet.
+- **Code signing removes the warnings.** Add the repository secrets `WIN_CSC_LINK` (the base64 of a code-signing `.pfx`) and `WIN_CSC_KEY_PASSWORD`, and every build is signed. Azure Trusted Signing works too, and SignPath signs open-source projects for free.
+- **Report a false positive.** If Microsoft Defender flags a release, submit `iRelay.exe` at <https://www.microsoft.com/wdsi/filesubmission> as a "Software developer" with "Incorrectly detected as malware". Microsoft clears the file, usually within a few days.
+- **SmartScreen warning.** If SmartScreen warns about an unknown publisher, choose **More info › Run anyway**.
+
+## Updating
+
+iRelay updates itself when it starts. **Update iRelay**, in the sidebar or in About, checks and updates at any time. Neither needs an installer: the new version is downloaded, verified and loaded on restart.
+
+For a private repository, add a GitHub token (fine-grained, *Contents: Read-only* on this repository) under **About › GitHub token**. Windows encrypts the token and keeps it on this PC only.
 
 ## Building
 
