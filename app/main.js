@@ -225,7 +225,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
         state.cable = { status: 'waiting', message: `Unlock ${current.name === 'Device' ? 'the device' : current.name} and tap Trust.`, device: null };
       } else if (!current.ideck) {
         deviceId = null;
-        state.cable = { status: 'waiting', message: `Open iDeck on ${current.name} and turn on iRelay in Settings › Steam.`, device: { name: current.name, model: current.model, iosVersion: current.iosVersion } };
+        state.cable = { status: 'waiting', message: `Open iDeck on ${current.name} and turn on iRelay in Settings › iRelay.`, device: { name: current.name, model: current.model, iosVersion: current.iosVersion } };
       } else {
         const first = deviceId !== current.id;
         deviceId = current.id;
