@@ -17,6 +17,8 @@ public sealed class MainForm : Form
     readonly Config config;
     readonly RelayEngine engine;
     readonly RelayServer server;
+    readonly UsbTunnel usb;
+    readonly Label cable = new();
 
     readonly Label address = new();
     readonly Label code = new();
@@ -33,6 +35,8 @@ public sealed class MainForm : Form
         this.config = config;
         engine = new RelayEngine(config);
         server = new RelayServer(config, engine);
+        usb = new UsbTunnel(config);
+        usb.Log += AddLog;
         engine.Log += AddLog;
         server.Log += AddLog;
 
@@ -52,7 +56,8 @@ public sealed class MainForm : Form
             try
             {
                 await server.StartAsync();
-                status.Text = "Pronto. No iDeck: Ajustes › Steam › iRelay.";
+                status.Text = "Pronto. No iDeck: Ajustes › Steam › iRelay › Conexão: Cabo USB, e digite o código.";
+                usb.Start();
             }
             catch (Exception error)
             {
@@ -66,6 +71,7 @@ public sealed class MainForm : Form
         {
             timer.Stop();
             engine.CancelAll();
+            usb.Stop();
             await server.StopAsync();
         };
     }
@@ -90,11 +96,16 @@ public sealed class MainForm : Form
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
         var left = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, BackColor = Back, WrapContents = false };
         left.Controls.Add(new Label { Text = "iRelay", Font = new Font("Segoe UI Semibold", 22f), AutoSize = true, ForeColor = Text1 });
-        left.Controls.Add(new Label { Text = "Baixa jogos da Steam no PC e envia ao iDeck enquanto baixa.", AutoSize = true, ForeColor = Text2 });
+        left.Controls.Add(new Label { Text = "Baixa jogos da Steam no PC e envia ao iDeck pelo cabo USB enquanto baixa.", AutoSize = true, ForeColor = Text2 });
+        cable.AutoSize = true;
+        cable.ForeColor = Text1;
+        cable.Font = new Font("Segoe UI", 11f);
+        cable.Margin = new Padding(3, 10, 3, 0);
+        left.Controls.Add(cable);
         address.AutoSize = true;
         address.ForeColor = Text1;
-        address.Font = new Font("Segoe UI", 11f);
-        address.Margin = new Padding(3, 10, 3, 3);
+        address.ForeColor = Text2;
+        address.Margin = new Padding(3, 4, 3, 3);
         left.Controls.Add(address);
         header.Controls.Add(left, 0, 0);
 
@@ -250,9 +261,10 @@ public sealed class MainForm : Form
     {
         var addresses = RelayServer.LocalAddresses();
         address.Text = addresses.Count == 0
-            ? "Endereço: sem rede"
-            : "Endereço: " + string.Join("   ou   ", addresses.Select(a => config.Port == 27090 ? a : $"{a}:{config.Port}"));
+            ? "Wi‑Fi (opcional): sem rede"
+            : "Wi‑Fi (opcional): " + string.Join("   ou   ", addresses.Select(a => config.Port == 27090 ? a : $"{a}:{config.Port}"));
         code.Text = config.Code;
+        cable.Text = usb.Status;
 
         var jobs = engine.Jobs;
         list.BeginUpdate();
