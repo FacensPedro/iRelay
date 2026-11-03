@@ -8,6 +8,8 @@ iRelay is a Windows companion for [iDeck](https://github.com/FacensPedro/iDeck).
 - **Install and copy:** choose a game and iRelay installs it on the PC with Steam, the Epic Games Launcher or GOG Galaxy. When the install finishes, iRelay copies it into the right iDeck folder, and the game shows up in iDeck as installed.
 - **DLC:** for Steam games that are already installed on the PC, you can install a DLC and copy just its files to the device.
 - **Updates:** copying a game that is already on the device sends only the files that changed. Files that exist only on the device, such as saves and settings, are never deleted.
+- **Frees the PC:** once a game is on the device, iRelay deletes its files and install record from the PC.
+- **Bugs:** **iRelay bugs** lists problems from iRelay's log. **iDeck bugs** reads the problems iDeck found on the connected device.
 - **Download relay:** when you start a Steam download in iDeck itself, the PC downloads the same pieces at its own speed. The device takes each piece over the cable as soon as it arrives.
 - **Automatic updates:** each time it starts, iRelay checks GitHub Releases and switches to the newest version. You never need to run an installer.
 

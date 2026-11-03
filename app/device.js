@@ -65,6 +65,7 @@ function query(params) {
 
 module.exports = {
   info: (id) => request(id, 'GET', '/info', { timeout: 8000 }),
+  logs: (id) => request(id, 'GET', '/logs', { timeout: 30000 }),
   library: (id) => request(id, 'GET', '/library', { timeout: 120000 }),
   steamDLC: (id, appId) => request(id, 'POST', `/steam/dlc?app=${appId}`, { json: {}, timeout: 120000 }),
   files: (id, root) => request(id, 'GET', `/files?${query({ root })}`, { timeout: 120000 }),

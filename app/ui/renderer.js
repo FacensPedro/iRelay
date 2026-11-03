@@ -1,7 +1,8 @@
 'use strict';
 /* global irelay */
 
-const TITLES = { steam: 'Steam', epic: 'Epic Games', gog: 'GOG', tasks: 'Transfers', about: 'About' };
+const TITLES = { steam: 'Steam', epic: 'Epic Games', gog: 'GOG', tasks: 'Transfers', about: 'About', 'bugs-irelay': 'iRelay bugs', 'bugs-ideck': 'iDeck bugs' };
+let bugs = { 'bugs-irelay': null, 'bugs-ideck': null };
 let state = null;
 let view = 'steam';
 let filter = 'all';
@@ -69,9 +70,14 @@ function render() {
   const library = ['steam', 'epic', 'gog'].includes(view);
   $('filter').style.visibility = library ? 'visible' : 'hidden';
   $('search').style.visibility = library ? 'visible' : 'hidden';
-  $('refresh').style.visibility = library ? 'visible' : 'hidden';
+  $('refresh').style.visibility = library || view.startsWith('bugs-') ? 'visible' : 'hidden';
+  for (const kind of ['bugs-irelay', 'bugs-ideck']) {
+    const found = bugs[kind] && bugs[kind].issues ? bugs[kind].issues.length : 0;
+    $(`count-${kind}`).textContent = found ? found : '';
+  }
   if (library) renderLibrary();
   else if (view === 'tasks') renderTasks();
+  else if (view.startsWith('bugs-')) renderBugs();
   else renderAbout();
   renderDrawer();
 }
@@ -142,16 +148,14 @@ function renderLibrary() {
     return;
   }
   const html = `<div class="grid">${list.map((game) => {
-    const badges = [
-      game.onPC ? '<span class="badge pc">PC</span>' : '',
-      game.installingPC ? '<span class="badge busy">Installing</span>' : '',
-      game.onIPad ? '<span class="badge ipad">Device</span>' : '',
+    const meta = [
+      game.onPC ? '<span class="pc">PC</span>' : '',
+      game.installingPC ? '<span class="busy">Installing</span>' : '',
+      game.onIPad ? '<span class="ipad">Device</span>' : '',
     ].join('');
     return `<button class="card" data-store="${store}" data-id="${esc(game.id)}">
-      <div class="cover">${game.cover ? `<img src="${esc(game.cover)}" loading="lazy" alt="">` : ''}
-        <div class="fallback" ${game.cover ? 'hidden' : ''}>${esc(game.title)}</div>
-        <div class="badges">${badges}</div></div>
-      <div class="card-title">${esc(game.title)}</div></button>`;
+      <div class="cover">${game.cover ? `<img src="${esc(game.cover)}" loading="lazy" alt="">` : ''}</div>
+      <div class="card-title">${esc(game.title)}</div><div class="card-meta">${meta}</div></button>`;
   }).join('')}</div>`;
   setContent(html);
 }
@@ -161,11 +165,7 @@ function setContent(html) {
   lastGrid = html;
   $('content').innerHTML = html;
   $('content').querySelectorAll('.cover img').forEach((img) => {
-    img.addEventListener('error', () => {
-      const fallback = img.parentElement.querySelector('.fallback');
-      img.remove();
-      if (fallback) fallback.hidden = false;
-    });
+    img.addEventListener('error', () => img.remove());
   });
 }
 
@@ -195,16 +195,41 @@ function renderTasks() {
 
 function renderAbout() {
   setContent(`<div class="about">
-    <div class="panel"><h3>iRelay ${esc(state.version)}</h3><p>Installs your Steam, Epic Games and GOG games on this PC with their own launchers and copies them into iDeck on the connected device over USB. iRelay updates itself when it starts.</p></div>
-    <div class="panel"><h3>Connection</h3><p>${esc(state.cable.message)}</p></div>
-    <div class="panel"><h3>Download cache</h3><p>Pieces downloaded for installs started in iDeck are removed once the device has them.</p>
-      <div style="margin-top:12px"><button class="secondary" id="clear-cache">Clear cache</button></div></div>
-    <div class="panel"><h3>Source</h3><p><a href="#" id="source" class="link">github.com/FacensPedro/iRelay</a></p></div>
+    <div class="panel"><h3>iRelay ${esc(state.version)}</h3><p>${esc(state.cable.message)}</p>
+      <div class="bugs-bar" style="margin:12px 0 0"><button class="secondary" id="clear-cache">Clear cache</button>
+      <button class="secondary" id="source">GitHub</button></div></div>
   </div>`);
   const clear = $('clear-cache');
   if (clear) clear.onclick = () => irelay.clearCache();
   const source = $('source');
-  if (source) source.onclick = (event) => { event.preventDefault(); irelay.openExternal('https://github.com/FacensPedro/iRelay'); };
+  if (source) source.onclick = () => irelay.openExternal('https://github.com/FacensPedro/iRelay');
+}
+
+// MARK: Bugs
+
+async function loadBugs(kind) {
+  try {
+    bugs[kind] = kind === 'bugs-irelay' ? await irelay.irelayBugs() : await irelay.ideckBugs();
+  } catch (failure) {
+    bugs[kind] = { error: String(failure.message || failure).replace(/^Error invoking remote method '\w+': (Error: )?/, '') };
+  }
+  lastGrid = '';
+  render();
+}
+
+function renderBugs() {
+  const data = bugs[view];
+  if (!data) { setContent(emptyState('Reading logs…', '')); return; }
+  if (data.error) { setContent(emptyState('Logs unavailable', data.error)); return; }
+  const issues = data.issues || [];
+  const list = issues.length
+    ? issues.map((line) => `<div class="bug ${/error|fatal|crash|exception/i.test(line) ? 'err' : ''}">${esc(line)}</div>`).join('')
+    : emptyState('No bugs found', '');
+  setContent(`<div class="bugs-bar"><button class="secondary" id="copy-bugs">Copy</button></div>
+    <div class="bugs">${list}</div>
+    ${data.log ? `<div class="section-title">Log</div><div class="logtail">${esc(data.log)}</div>` : ''}`);
+  const copy = $('copy-bugs');
+  if (copy) copy.onclick = () => navigator.clipboard.writeText([...issues, '', data.log || ''].join('\n'));
 }
 
 // MARK: Drawer
@@ -250,7 +275,7 @@ function renderDrawer() {
         <div class="status"><div class="label">Device</div><div class="value ${game.onIPad ? 'yes' : ''}">${game.onIPad ? 'Installed' : 'Not installed'}</div></div>
       </div>
       <div class="actions">${actions}</div>
-      <div class="note">${game.onPC ? 'Only files the device does not have yet are copied.' : `The game is installed by ${esc(launcher)} on this PC, then copied into iDeck.`}</div>
+      <div class="note">${game.onPC ? 'Only missing files are copied, then the game is removed from this PC.' : `Installed by ${esc(launcher)}, copied to the device, then removed from this PC.`}</div>
       <div class="error" id="drawer-error"></div>
       ${dlc}
     </div>`;
@@ -300,6 +325,7 @@ document.querySelectorAll('.nav-item').forEach((button) => {
   button.addEventListener('click', () => {
     view = button.dataset.view;
     selected = null;
+    if (view.startsWith('bugs-')) loadBugs(view);
     document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', item === button));
     lastGrid = '';
     render();
@@ -313,7 +339,7 @@ document.querySelectorAll('#filter button').forEach((button) => {
   });
 });
 $('search').addEventListener('input', (event) => { query = event.target.value.trim().toLowerCase(); render(); });
-$('refresh').addEventListener('click', () => irelay.refresh());
+$('refresh').addEventListener('click', () => (view.startsWith('bugs-') ? loadBugs(view) : irelay.refresh()));
 $('gate-button').addEventListener('click', () => irelay.openSteam());
 $('device-select').addEventListener('change', (event) => irelay.selectDevice(event.target.value));
 $('content').addEventListener('click', (event) => {
