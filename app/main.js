@@ -410,6 +410,9 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     state.ready = true;
     state.boot = '';
     every(2000, pollCable);
+    // The device's library again every 30 s, so games copied earlier or
+    // installed in iDeck itself show up without a reconnect.
+    every(30000, () => (deviceId ? refreshLibrary() : null));
     every(4000, pollPC);
     push();
   });
