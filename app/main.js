@@ -66,7 +66,10 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     setTimeout(() => { if (window && !window.isDestroyed() && !window.isVisible()) window.show(); }, 4000);
     window.webContents.on('render-process-gone', (_, details) => log(`renderer gone: ${details.reason}`));
     window.webContents.on('did-fail-load', (_, code, text) => log(`page failed to load: ${code} ${text}`));
-    window.webContents.on('console-message', (_, level, message) => { if (level >= 2) log(`page: ${message}`); });
+    // Electron 42: one event object (level 'warning' / 'error').
+    window.webContents.on('console-message', (event) => {
+      if (event.level === 'error' || event.level === 'warning') log(`page: ${event.message}`);
+    });
     window.webContents.on('did-finish-load', () => {
       log('window loaded');
       if (SMOKE) setTimeout(() => { log('smoke test passed'); app.exit(0); }, 5000);
