@@ -197,7 +197,12 @@ function renderTasks() {
     const speed = job.seconds > 0 ? job.bytes / job.seconds : 0;
     return `<div class="task"><div class="task-head"><div><div class="task-title">${esc(job.name)}</div>
       <div class="task-meta">Processed on this PC · ${done}% · ${size(job.bytes)} of ${size(job.totalBytes)}${job.finished ? '' : ` · ${size(speed)}/s`}${job.failed ? ` · ${job.failed} left to iDeck` : ''}</div></div>
-      ${job.finished ? `<button class="link" data-hide="${esc(itemKey('job', job))}" title="Remove">✕</button>` : ''}</div>
+      <div class="transfer-actions">
+        ${!job.finished && downloadControlsSupported() && job.appId ? `
+          <button class="secondary" data-control="pause" data-store="steam" data-id="${esc(job.appId)}">Pause</button>
+          <button class="secondary" data-control="stop" data-store="steam" data-id="${esc(job.appId)}">Stop</button>` : ''}
+        ${job.finished ? `<button class="link" data-hide="${esc(itemKey('job', job))}" title="Remove">✕</button>` : ''}
+      </div></div>
       <div class="bar"><span style="width:${done}%"></span></div></div>`;
   }).join('');
   setContent(`<div class="tasks">${transferError ? `<div class="error" role="alert">${esc(transferError)}</div>` : ''}
