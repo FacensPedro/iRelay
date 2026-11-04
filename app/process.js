@@ -221,7 +221,7 @@ class Processor {
   /// For the Transfers view.
   list() {
     return [...this.jobs.values()].slice(-20).reverse().map((job) => ({
-      id: job.id, name: job.name, total: job.total, done: job.chunksDone, failed: job.failed.length,
+      id: job.id, appId: job.appId, name: job.name, total: job.total, done: job.chunksDone, failed: job.failed.length,
       bytes: job.bytesDone, totalBytes: job.totalBytes, finished: job.finished,
       seconds: ((job.ended || Date.now()) - job.started) / 1000,
     }));
