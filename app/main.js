@@ -157,10 +157,10 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     if (processor) state.jobs = processor.list();
     if (!deviceId) { state.installs = []; push(); return; }
     try {
-      const wasActive = state.installs.some((item) => item.phase !== 'failed');
+      const wasActive = state.installs.some((item) => item.phase !== 'failed' && item.phase !== 'paused');
       state.installs = (await device.installs(deviceId)).installs || [];
       // A download just ended: the library shows it installed.
-      if (wasActive && !state.installs.some((item) => item.phase !== 'failed')) await refreshLibrary();
+      if (wasActive && !state.installs.some((item) => item.phase !== 'failed' && item.phase !== 'paused')) await refreshLibrary();
       if (Object.keys(state.dlcQueue).length) await runDLCQueue();
     } catch { /* next poll */ }
     push();
@@ -305,7 +305,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   // incomplete data where supported, without uninstalling completed games.
   ipcMain.handle('controlDownload', async (_, control) => {
     if (!deviceId) throw new Error('Connect a device with iDeck first.');
-    if (Number(state.cable.device && state.cable.device.protocol) < 3) {
+    if (Number(state.cable.device?.protocol || 0) < 3) {
       throw new Error('Update iDeck to a version that supports download controls.');
     }
     const { store, action } = control || {};
