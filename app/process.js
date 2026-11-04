@@ -10,7 +10,8 @@ const os = require('os');
 const path = require('path');
 const { Worker } = require('worker_threads');
 
-const IN_FLIGHT = 24;
+const NORMAL_IN_FLIGHT = 24;
+const ACCELERATED_IN_FLIGHT = 48;
 
 // The worker's code: read here (it may live inside an asar archive, which
 // worker threads cannot load from) and evaluated in each worker.
@@ -39,8 +40,17 @@ const ABANDON_MS = 20000;
 class Pool {
   constructor(size) {
     const source = workerSource();
-    this.workers = Array.from({ length: size }, () => {
-      const worker = new Worker(source, { eval: true });
+    this.source = source;
+    this.workers = [];
+    this.pending = new Map();
+    this.next = 0;
+    this.resize(size);
+  }
+
+  resize(size) {
+    this.size = size;
+    while (this.workers.length < size) {
+      const worker = new Worker(this.source, { eval: true });
       worker.busy = 0;
       worker.on('message', ({ id, out, error }) => {
         worker.busy -= 1;
@@ -49,15 +59,13 @@ class Pool {
         if (!pending) return;
         if (error) pending.reject(new Error(error)); else pending.resolve(Buffer.from(out));
       });
-      return worker;
-    });
-    this.pending = new Map();
-    this.next = 0;
+      this.workers.push(worker);
+    }
   }
 
   decode(job) {
     const id = ++this.next;
-    const worker = this.workers.reduce((a, b) => (b.busy < a.busy ? b : a));
+    const worker = this.workers.slice(0, this.size).reduce((a, b) => (b.busy < a.busy ? b : a));
     worker.busy += 1;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
@@ -68,16 +76,33 @@ class Pool {
 }
 
 class Processor {
-  constructor({ write, onChange, log }) {
+  constructor({ write, onChange, log, accelerated = false }) {
     this.write = write;   // (root, path, offset, size, sha, data) -> Promise
     this.onChange = onChange;
     this.log = log;
     this.jobs = new Map();
     this.pool = null;
+    this.accelerated = accelerated === true;
+  }
+
+  get concurrency() {
+    return this.accelerated ? ACCELERATED_IN_FLIGHT : NORMAL_IN_FLIGHT;
+  }
+
+  get workerCount() {
+    const cpus = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
+    return Math.max(2, Math.min(this.accelerated ? 12 : 8, cpus - 1));
+  }
+
+  setAccelerated(enabled) {
+    if (typeof enabled !== 'boolean') throw new TypeError('Invalid download acceleration setting.');
+    this.accelerated = enabled;
+    if (this.pool) this.pool.resize(this.workerCount);
+    for (const job of this.jobs.values()) if (job.pump) job.pump();
   }
 
   start(request) {
-    this.pool = this.pool || new Pool(Math.max(2, Math.min(8, os.cpus().length - 1)));
+    this.pool = this.pool || new Pool(this.workerCount);
     const id = `${request.appId}-${Date.now().toString(36)}`;
     const queue = [];
     for (const depot of request.depots || []) {
@@ -100,29 +125,36 @@ class Processor {
 
   async run(job, queue) {
     let next = 0;
-    const worker = async () => {
-      while (next < queue.length && !job.cancelled) {
-        // iDeck asks for the job's status every second while it waits. When it
-        // stops asking (download stopped, iDeck closed or unplugged), stop too.
-        if (Date.now() - job.polled > ABANDON_MS) {
+    let active = 0;
+    await new Promise((resolve) => {
+      const pump = () => {
+        if (Date.now() - job.polled > ABANDON_MS && !job.cancelled) {
           job.cancelled = true;
           this.log(`processing ${job.name} stopped: iDeck no longer follows it`);
-          break;
         }
-        const item = queue[next];
-        next += 1;
-        try {
-          await this.one(item);
-          job.chunksDone += 1;
-          job.bytesDone += item.chunk.size;
-          job.compressedDone += item.chunk.compressed;
-        } catch (error) {
-          job.failed.push(item.chunk.sha);
-          if (job.failed.length <= 5) this.log(`chunk ${item.chunk.sha.slice(0, 8)} of ${job.name}: ${error.message}`);
+        while (next < queue.length && !job.cancelled && active < this.concurrency) {
+          const item = queue[next++];
+          active += 1;
+          Promise.resolve().then(() => this.one(item)).then(() => {
+            job.chunksDone += 1;
+            job.bytesDone += item.chunk.size;
+            job.compressedDone += item.chunk.compressed;
+          }).catch((error) => {
+            job.failed.push(item.chunk.sha);
+            if (job.failed.length <= 5) this.log(`chunk ${item.chunk.sha.slice(0, 8)} of ${job.name}: ${error.message}`);
+          }).finally(() => {
+            active -= 1;
+            pump();
+          });
         }
-      }
-    };
-    await Promise.all(Array.from({ length: IN_FLIGHT }, worker));
+        if (!active && (job.cancelled || next >= queue.length)) {
+          delete job.pump;
+          resolve();
+        }
+      };
+      job.pump = pump;
+      pump();
+    });
     // Chunks never tried (cancelled) count as failed: iDeck fetches them.
     for (let i = next; i < queue.length; i += 1) job.failed.push(queue[i].chunk.sha);
     job.finished = true;
@@ -180,6 +212,7 @@ class Processor {
     const job = this.jobs.get(id);
     if (job && !job.cancelled) {
       job.cancelled = true;
+      if (job.pump) job.pump();
       this.log(`processing ${job.name} stopped by iDeck`);
       this.onChange();
     }

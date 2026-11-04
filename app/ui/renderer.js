@@ -1,7 +1,7 @@
 'use strict';
 /* global irelay */
 
-const TITLES = { steam: 'Steam', epic: 'Epic Games', gog: 'GOG', tasks: 'Transfers', about: 'About', 'bugs-irelay': 'iRelay bugs', 'bugs-ideck': 'iDeck bugs' };
+const TITLES = { steam: 'Steam', epic: 'Epic Games', gog: 'GOG', tasks: 'Transfers', settings: 'Settings', about: 'About', 'bugs-irelay': 'iRelay bugs', 'bugs-ideck': 'iDeck bugs' };
 let bugs = { 'bugs-irelay': null, 'bugs-ideck': null };
 let state = null;
 let view = 'steam';
@@ -78,6 +78,7 @@ function render() {
   }
   if (library) renderLibrary();
   else if (view === 'tasks') renderTasks();
+  else if (view === 'settings') renderSettings();
   else if (view.startsWith('bugs-')) renderBugs();
   else renderAbout();
   renderDrawer();
@@ -192,6 +193,41 @@ function renderTasks() {
       <div class="bar"><span style="width:${done}%"></span></div></div>`;
   }).join('');
   setContent(`<div class="tasks">${installHTML}${jobHTML}</div>`);
+}
+
+let savingSettings = false;
+let settingsError = '';
+function renderSettings() {
+  const enabled = state.settings && state.settings.accelerateDownloads === true;
+  setContent(`<div class="settings">
+    <div class="panel settings-panel">
+      <div class="settings-copy"><h3 id="acceleration-label">Accelerate downloads</h3>
+        <p id="acceleration-description">Download and process more Steam chunks at the same time on this PC. Uses more CPU, memory and bandwidth. Speed depends on your connection and device.</p></div>
+      <button class="acceleration-switch" id="download-acceleration" role="switch" aria-checked="${enabled}"
+        aria-labelledby="acceleration-label" aria-describedby="acceleration-description" ${savingSettings ? 'disabled' : ''}>
+        <span>${savingSettings ? 'Saving…' : enabled ? 'On' : 'Off'}</span><span class="switch-track" aria-hidden="true"><span></span></span>
+      </button>
+    </div>
+    <p class="note">Applies to current and future Steam downloads processed by iRelay. Epic Games and GOG downloads run on the device.</p>
+    <div class="error" role="status" aria-live="polite">${esc(settingsError)}</div>
+  </div>`);
+  $('download-acceleration').onclick = async () => {
+    if (savingSettings) return;
+    savingSettings = true;
+    settingsError = '';
+    renderSettings();
+    try {
+      const saved = await irelay.setDownloadAcceleration(!enabled);
+      state.settings = saved;
+    } catch (error) {
+      settingsError = String(error.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+    } finally {
+      savingSettings = false;
+      lastGrid = '';
+      render();
+      if (view === 'settings') $('download-acceleration').focus();
+    }
+  };
 }
 
 function renderAbout() {
