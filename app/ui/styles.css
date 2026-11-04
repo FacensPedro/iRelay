@@ -228,6 +228,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 
 .settings { max-width: 740px; }
 .settings-panel { display: flex; align-items: center; justify-content: space-between; gap: 28px; }
+.settings > .settings-panel + .settings-panel { margin-top: 20px; }
 .settings-copy { min-width: 0; }
 .acceleration-switch { display: flex; align-items: center; gap: 10px; flex: none; padding: 8px;
   border: 0; border-radius: 8px; background: transparent; color: var(--muted); }
