@@ -33,6 +33,9 @@ function workerSource() {
     });`;
 }
 
+/// A job iDeck has not asked about for this long is stopped.
+const ABANDON_MS = 20000;
+
 class Pool {
   constructor(size) {
     const source = workerSource();
@@ -86,7 +89,7 @@ class Processor {
       id, appId: request.appId, name: request.name || `App ${request.appId}`, total: queue.length,
       totalBytes: queue.reduce((sum, item) => sum + item.chunk.size, 0),
       chunksDone: 0, bytesDone: 0, compressedDone: 0, failed: [], finished: false, cancelled: false,
-      started: Date.now(),
+      started: Date.now(), polled: Date.now(),
     };
     this.jobs.set(id, job);
     this.log(`processing ${job.name}: ${job.total} chunks`);
@@ -99,6 +102,13 @@ class Processor {
     let next = 0;
     const worker = async () => {
       while (next < queue.length && !job.cancelled) {
+        // iDeck asks for the job's status every second while it waits. When it
+        // stops asking (download stopped, iDeck closed or unplugged), stop too.
+        if (Date.now() - job.polled > ABANDON_MS) {
+          job.cancelled = true;
+          this.log(`processing ${job.name} stopped: iDeck no longer follows it`);
+          break;
+        }
         const item = queue[next];
         next += 1;
         try {
@@ -161,13 +171,18 @@ class Processor {
   status(id) {
     const job = this.jobs.get(id);
     if (!job) return null;
+    job.polled = Date.now();
     return { finished: job.finished, chunksDone: job.chunksDone, bytesDone: job.bytesDone,
       compressedDone: job.compressedDone, failed: job.finished ? job.failed : [] };
   }
 
   cancel(id) {
     const job = this.jobs.get(id);
-    if (job) job.cancelled = true;
+    if (job && !job.cancelled) {
+      job.cancelled = true;
+      this.log(`processing ${job.name} stopped by iDeck`);
+      this.onChange();
+    }
   }
 
   /// For the Transfers view.
