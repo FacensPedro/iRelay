@@ -8,6 +8,8 @@ const fs = require('fs');
 const updater = require('./updater');
 const Relay = require('./relay');
 const Processor = require('./process');
+const Settings = require('./settings');
+const settings = new Settings(path.join(app.getPath('userData'), 'settings.json'));
 
 const VERSION = (global.irelay && global.irelay.version) || app.getVersion();
 const log = global.irelayLog || (() => {});
@@ -22,6 +24,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   let window = null;
   const state = {
     version: VERSION,
+    settings: { ...settings.value },
     boot: 'Starting…',
     update: { busy: false, message: '' },
     ready: false,
@@ -72,7 +75,39 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     });
     window.webContents.on('did-finish-load', () => {
       log('window loaded');
-      if (SMOKE) setTimeout(() => { log('smoke test passed'); app.exit(0); }, 5000);
+      if (SMOKE) setTimeout(async () => {
+        try {
+          await window.webContents.executeJavaScript(`(async () => {
+            const wait = async (check) => {
+              for (let i = 0; i < 100; i++) {
+                if (await check()) return;
+                await new Promise(resolve => setTimeout(resolve, 100));
+              }
+              throw new Error('Settings smoke test timed out');
+            };
+            await wait(async () => (await irelay.state()).ready);
+            document.querySelector('[data-view="settings"]').click();
+            const toggle = () => document.getElementById('download-acceleration');
+            if (!toggle()) throw new Error('Download acceleration button missing');
+            const original = (await irelay.state()).settings.accelerateDownloads;
+            toggle().click();
+            await wait(async () => !toggle().disabled &&
+              toggle().getAttribute('aria-checked') === String(!original) &&
+              (await irelay.state()).settings.accelerateDownloads === !original);
+            toggle().click();
+            await wait(async () => !toggle().disabled &&
+              toggle().getAttribute('aria-checked') === String(original) &&
+              (await irelay.state()).settings.accelerateDownloads === original);
+            document.querySelector('[data-view="steam"]').click();
+          })()`);
+          log('settings navigation and acceleration smoke test passed');
+          log('smoke test passed');
+          app.exit(0);
+        } catch (error) {
+          log(`smoke test failed: ${error.message}`);
+          app.exit(1);
+        }
+      }, 5000);
     });
     window.webContents.setWindowOpenHandler(({ url }) => {
       if (/^https:\/\//.test(url)) shell.openExternal(url);
@@ -202,6 +237,13 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
 
   ipcMain.handle('state', () => state);
   ipcMain.handle('refresh', () => refreshLibrary());
+  ipcMain.handle('setDownloadAcceleration', (_, enabled) => {
+    state.settings = settings.setDownloadAcceleration(enabled);
+    if (processor) processor.setAccelerated(enabled);
+    log(`download acceleration ${enabled ? 'enabled' : 'disabled'}`);
+    push();
+    return state.settings;
+  });
   ipcMain.handle('openExternal', (_, url) => (/^https:\/\//.test(url) ? shell.openExternal(url) : null));
   ipcMain.handle('steamDLC', async (_, appId) => {
     if (!deviceId) return [];
@@ -326,6 +368,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     }
     // Not 'cache': on Windows that is Chromium's own Cache folder (names ignore case).
     processor = new Processor({
+      accelerated: state.settings.accelerateDownloads,
       write: (root, file, offset, size, sha, data) => {
         if (!deviceId) return Promise.reject(new Error('device not connected'));
         return device.write(deviceId, root, file, offset, size, sha, data);
