@@ -70,6 +70,7 @@ module.exports = {
   info: (id) => request(id, 'GET', '/info', { timeout: 8000 }),
   install: (id, body) => request(id, 'POST', '/install', { json: body, timeout: 60000 }),
   installs: (id) => request(id, 'GET', '/installs', { timeout: 10000 }),
+  controlDownload: (id, body) => request(id, 'POST', '/downloads/control', { json: body, timeout: 30000 }),
   write: (id, root, relative, offset, size, sha, data) =>
     request(id, 'PUT', `/write?${query({ root, path: relative, offset, size, sha })}`, { data, timeout: 120000 }),
   uninstall: (id, body) => request(id, 'POST', '/uninstall', { json: body, timeout: 120000 }),

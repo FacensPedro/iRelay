@@ -157,10 +157,10 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     if (processor) state.jobs = processor.list();
     if (!deviceId) { state.installs = []; push(); return; }
     try {
-      const wasActive = state.installs.some((item) => item.phase !== 'failed');
+      const wasActive = state.installs.some((item) => item.phase !== 'failed' && item.phase !== 'paused');
       state.installs = (await device.installs(deviceId)).installs || [];
       // A download just ended: the library shows it installed.
-      if (wasActive && !state.installs.some((item) => item.phase !== 'failed')) await refreshLibrary();
+      if (wasActive && !state.installs.some((item) => item.phase !== 'failed' && item.phase !== 'paused')) await refreshLibrary();
       if (Object.keys(state.dlcQueue).length) await runDLCQueue();
     } catch { /* next poll */ }
     push();
@@ -300,6 +300,28 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
       state.dlcQueue[body.appId] = request.withDLC.map(Number);
     }
     setTimeout(pollInstalls, 500);
+  });
+  // iDeck owns each install. Pause preserves partial files; Stop discards
+  // incomplete data where supported, without uninstalling completed games.
+  ipcMain.handle('controlDownload', async (_, control) => {
+    if (!deviceId) throw new Error('Connect a device with iDeck first.');
+    if (Number(state.cable.device?.protocol || 0) < 3) {
+      throw new Error('Update iDeck to a version that supports download controls.');
+    }
+    const { store, action } = control || {};
+    if (!['steam', 'epic', 'gog'].includes(store) ||
+        !['pause', 'resume', 'stop'].includes(action)) {
+      throw new Error('Invalid download control.');
+    }
+    const id = store === 'epic' ? String(control.id || '') : Number(control.id);
+    if ((store === 'epic' && !id) || (store !== 'epic' && !Number.isSafeInteger(id))) {
+      throw new Error('Invalid game ID.');
+    }
+    await device.controlDownload(deviceId, { store, id, action });
+    if (store === 'steam' && action === 'stop') delete state.dlcQueue[id];
+    log(`download ${action}: ${store} ${id}`);
+    await pollInstalls();
+    return { ok: true };
   });
   // Uninstall removes the game (or one DLC) from iDeck's drive.
   ipcMain.handle('uninstall', async (_, request) => {
