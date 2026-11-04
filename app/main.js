@@ -301,6 +301,28 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     }
     setTimeout(pollInstalls, 500);
   });
+  // iDeck owns each install. Pause preserves partial files; Stop discards
+  // incomplete data where supported, without uninstalling completed games.
+  ipcMain.handle('controlDownload', async (_, control) => {
+    if (!deviceId) throw new Error('Connect a device with iDeck first.');
+    if (Number(state.cable.device && state.cable.device.protocol) < 3) {
+      throw new Error('Update iDeck to a version that supports download controls.');
+    }
+    const { store, action } = control || {};
+    if (!['steam', 'epic', 'gog'].includes(store) ||
+        !['pause', 'resume', 'stop'].includes(action)) {
+      throw new Error('Invalid download control.');
+    }
+    const id = store === 'epic' ? String(control.id || '') : Number(control.id);
+    if ((store === 'epic' && !id) || (store !== 'epic' && !Number.isSafeInteger(id))) {
+      throw new Error('Invalid game ID.');
+    }
+    await device.controlDownload(deviceId, { store, id, action });
+    if (store === 'steam' && action === 'stop') delete state.dlcQueue[id];
+    log(`download ${action}: ${store} ${id}`);
+    await pollInstalls();
+    return { ok: true };
+  });
   // Uninstall removes the game (or one DLC) from iDeck's drive.
   ipcMain.handle('uninstall', async (_, request) => {
     if (!deviceId) throw new Error('Connect a device with iDeck first.');
