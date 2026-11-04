@@ -1,4 +1,4 @@
-# iRelay
+# iRelay 3.5.0
 
 ## O que mudou
 - Nomes dos jogos centralizados.
