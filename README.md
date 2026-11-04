@@ -10,6 +10,7 @@ iRelay is a Windows companion for [iDeck](https://github.com/FacensPedro/iDeck).
 - **Epic Games and GOG:** iDeck downloads these itself.
 - **Bugs:** **iRelay bugs** lists this run's problems. **iDeck bugs** reads the ones iDeck found on the device. **Clear** empties either log.
 - **Download acceleration:** open **Settings** above **About** in the left sidebar and enable **Accelerate downloads**. It increases simultaneous Steam chunk transfers from 24 to 48 and allows up to 12 CPU decoding workers, according to the PC’s available processors. The setting is saved and applies to running and future transfers. It uses more CPU, memory and bandwidth; actual speed depends on the network, USB connection and device. Epic Games and GOG downloads remain handled by iDeck.
+- **Clear unused cache:** in **Settings**, choose **Clear unused cache** to remove cached images, incomplete update downloads and older update archives. iRelay shows the space freed, preserves the running version and the newest downloaded update, and keeps settings, libraries and active Steam transfers. Cleanup waits until any update has finished.
 - **Updates:** iRelay updates itself at start, or from **Update iRelay**, without running the installer again.
 - **Folders:** **About** opens iRelay's data folder (log, updates, settings) and its program folder.
 

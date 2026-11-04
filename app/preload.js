@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('irelay', {
   state: () => ipcRenderer.invoke('state'),
   onState: (callback) => ipcRenderer.on('state', (_, state) => callback(state)),
   refresh: () => ipcRenderer.invoke('refresh'),
+  clearUnusedCache: () => ipcRenderer.invoke('clearUnusedCache'),
   setDownloadAcceleration: (enabled) => ipcRenderer.invoke('setDownloadAcceleration', enabled),
   openExternal: (url) => ipcRenderer.invoke('openExternal', url),
   steamDLC: (appId) => ipcRenderer.invoke('steamDLC', appId),
