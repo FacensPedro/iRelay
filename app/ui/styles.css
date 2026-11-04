@@ -211,10 +211,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   font: 11px/1.5 Consolas, monospace; color: var(--muted); max-height: 420px; overflow: auto; user-select: text; }
 
 .sidebar { gap: 10px; }
-.update-button { margin-top: auto; display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px;
-  border-radius: 9px; border: 1px solid var(--line-strong); background: var(--card); color: var(--text); text-align: left; }
-.update-button:hover { border-color: #3a3a42; }
-.update-button:disabled { opacity: 0.6; }
+.device-box { margin-top: auto; }
 .update-note { color: var(--muted); font-size: 12px; margin-top: 6px; }
 
 .fold { display: block; width: 100%; text-align: left; margin: 10px 0 8px; padding: 8px 2px; border: 0; background: none;
