@@ -34,7 +34,7 @@ test('reject private and non-provider hosts from latency probes', async () => {
     'https://private.example.net',
     'https://cdn.gog.com',
   ];
-  assert.deepEqual(await selector.rank('gog', urls), urls);
+  assert.deepEqual(await selector.rank('gog', urls), [urls[4], ...urls.slice(0, 4)]);
   assert.deepEqual(called, ['https://cdn.gog.com/']);
   assert.equal(ServerSelector.origin('steam', 'https://localhost'), null);
   assert.equal(ServerSelector.origin('steam', 'https://example.org'), null);
