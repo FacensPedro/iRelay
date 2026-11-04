@@ -7,5 +7,3 @@
 - Seleção automática de servidores Steam por latência HTTPS medida no PC.
 - Classificação por latência de servidores GOG e Epic usados pelo iDeck conectado.
 - Texto de aceleração reduzido nas configurações.
-
-A velocidade real continua limitada pela conexão, pelo servidor de conteúdo, pelo USB e pelos recursos do equipamento.
