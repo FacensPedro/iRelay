@@ -32,3 +32,8 @@ test('settings show only control labels without explanatory paragraphs', () => {
   assert.doesNotMatch(renderer, /No speed cap\. Uses more CPU and memory/);
   assert.doesNotMatch(renderer, /Remove cached images, incomplete updates/);
 });
+
+test('settings panels have vertical spacing between download acceleration and unused cache', () => {
+  const styles = read('app/ui/styles.css');
+  assert.match(styles, /\.settings > \.settings-panel \+ \.settings-panel \{ margin-top: 20px; \}/);
+});
