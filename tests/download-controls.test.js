@@ -23,7 +23,7 @@ test('iRelay forwards pause, resume and stop to the device instead of discarding
 
 test('acceleration setting has concise explanatory text and retains its toggle', () => {
   const renderer = read('app/ui/renderer.js');
-  assert.match(renderer, /Faster Steam downloads using more PC resources\./);
-  assert.match(renderer, /Steam only\. Uses more CPU and bandwidth\./);
+  assert.match(renderer, /Use all available bandwidth for Steam downloads\./);
+  assert.match(renderer, /No speed cap\. Uses more CPU and memory\./);
   assert.match(renderer, /id="download-acceleration"/);
 });

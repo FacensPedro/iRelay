@@ -222,13 +222,13 @@ function renderSettings() {
   setContent(`<div class="settings">
     <div class="panel settings-panel">
       <div class="settings-copy"><h3 id="acceleration-label">Accelerate downloads</h3>
-        <p id="acceleration-description">Faster Steam downloads using more PC resources.</p></div>
+        <p id="acceleration-description">Use all available bandwidth for Steam downloads.</p></div>
       <button class="acceleration-switch" id="download-acceleration" role="switch" aria-checked="${enabled}"
         aria-labelledby="acceleration-label" aria-describedby="acceleration-description" ${savingSettings ? 'disabled' : ''}>
         <span>${savingSettings ? 'Saving…' : enabled ? 'On' : 'Off'}</span><span class="switch-track" aria-hidden="true"><span></span></span>
       </button>
     </div>
-    <p class="note">Steam only. Uses more CPU and bandwidth.</p>
+    <p class="note">No speed cap. Uses more CPU and memory.</p>
     <div class="panel settings-panel">
       <div class="settings-copy"><h3>Unused cache</h3>
         <p>Remove cached images, incomplete updates and older update files. The current version and the newest downloaded update are kept.</p></div>

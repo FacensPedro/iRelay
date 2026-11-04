@@ -9,9 +9,13 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { Worker } = require('worker_threads');
+const ServerSelector = require('./servers');
 
 const NORMAL_IN_FLIGHT = 24;
-const ACCELERATED_IN_FLIGHT = 48;
+// Acceleration has no byte-per-second limiter. Limit simultaneous buffers
+// for reliability, not bandwidth; adapt parallel transfers to the PC.
+const ACCELERATED_MIN_IN_FLIGHT = 64;
+const ACCELERATED_MAX_IN_FLIGHT = 192;
 
 // The worker's code: read here (it may live inside an asar archive, which
 // worker threads cannot load from) and evaluated in each worker.
@@ -83,10 +87,13 @@ class Processor {
     this.jobs = new Map();
     this.pool = null;
     this.accelerated = accelerated === true;
+    this.servers = new ServerSelector();
   }
 
   get concurrency() {
-    return this.accelerated ? ACCELERATED_IN_FLIGHT : NORMAL_IN_FLIGHT;
+    if (!this.accelerated) return NORMAL_IN_FLIGHT;
+    const cpus = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
+    return Math.min(ACCELERATED_MAX_IN_FLIGHT, Math.max(ACCELERATED_MIN_IN_FLIGHT, cpus * 12));
   }
 
   get workerCount() {
@@ -178,9 +185,9 @@ class Processor {
   }
 
   async download(depot, sha) {
-    const hosts = depot.hosts || [];
+    const hosts = await this.servers.rank('steam', depot.hosts || []);
     if (!hosts.length) throw new Error('no content servers');
-    const start = parseInt(sha.slice(0, 8), 16) % hosts.length;
+    const start = 0; // Always try the lowest-latency healthy CDN first.
     let last;
     for (let attempt = 0; attempt < Math.max(3, hosts.length); attempt += 1) {
       const original = hosts[(start + attempt) % hosts.length];
@@ -198,6 +205,10 @@ class Processor {
       }
     }
     throw last;
+  }
+
+  rankServers(store, urls) {
+    return this.servers.rank(store, urls);
   }
 
   status(id) {

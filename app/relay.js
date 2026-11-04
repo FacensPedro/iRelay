@@ -43,6 +43,28 @@ class Relay {
     if (req.method === 'GET' && url.pathname === '/ping') {
       return json(200, { name: 'iRelay', version: 3, machine: os.hostname() });
     }
+    if (req.method === 'POST' && url.pathname === '/servers/rank') {
+      const chunks = [];
+      let received = 0;
+      const body = await new Promise((resolve, reject) => {
+        req.on('data', (chunk) => {
+          received += chunk.length;
+          if (received > 16384) { reject(new Error('CDN selection request is too large')); req.destroy(); return; }
+          chunks.push(chunk);
+        });
+        req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+        req.on('error', reject);
+      });
+      let payload;
+      try { payload = JSON.parse(body); } catch { return json(400, { error: 'Invalid JSON' }); }
+      if (!payload || !['steam', 'gog', 'epic'].includes(payload.store) ||
+          !Array.isArray(payload.urls) || payload.urls.length > 24 ||
+          !payload.urls.every((candidate) => typeof candidate === 'string' && candidate.length <= 512)) {
+        return json(400, { error: 'Invalid server list' });
+      }
+      const ordered = await this.processor.rankServers(payload.store, payload.urls);
+      return json(200, { urls: ordered });
+    }
     if (req.method === 'POST' && url.pathname === '/process') {
       const body = await new Promise((resolve, reject) => {
         const parts = [];

@@ -113,7 +113,7 @@ input[type=search]:focus { border-color: var(--accent); }
 .badge.pc { color: #93c5fd; }
 .badge.ipad { color: #86efac; }
 .badge.busy { color: #fcd34d; }
-.card-title { margin-top: 8px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-title { margin-top: 8px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
 
 .empty { display: grid; place-items: center; height: 70%; text-align: center; color: var(--muted); }
 .empty h2 { color: var(--text); margin: 0 0 6px; font-size: 16px; font-weight: 600; }
@@ -161,7 +161,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 .tasks { display: grid; gap: 10px; max-width: 900px; }
 .task { padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
 .task-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
-.task-title { font-weight: 600; }
+.task-head > div:first-child { min-width: 0; flex: 1; }
+.task-title { font-weight: 600; text-align: center; }
 .transfer-actions { display: flex; align-items: center; gap: 7px; flex: none; }
 .transfer-actions .secondary { padding: 6px 10px; font-size: 12px; }
 @media (max-width: 1100px) {
@@ -204,7 +205,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 
 .nav-logo { width: 18px; height: 18px; object-fit: contain; flex: none; opacity: 0.85; }
 .nav-item.active .nav-logo, .nav-item:hover .nav-logo { opacity: 1; }
-.card-meta { margin-top: 2px; min-height: 16px; font-size: 11px; color: var(--faint); display: flex; gap: 8px; }
+.card-meta { margin-top: 2px; min-height: 16px; font-size: 11px; color: var(--faint); display: flex; justify-content: center; gap: 8px; }
 .card-meta .pc { color: #93c5fd; }
 .card-meta .ipad { color: #86efac; }
 .card-meta .busy { color: #fcd34d; }
@@ -237,3 +238,6 @@ button:disabled { opacity: 0.45; cursor: default; }
 .acceleration-switch[aria-checked=true] .switch-track { background: var(--accent); }
 .acceleration-switch[aria-checked=true] .switch-track span { transform: translateX(18px); }
 button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 3px; }
+
+.drawer-body h2 { text-align: center; }
+.drawer-body > .muted { text-align: center; }
