@@ -60,7 +60,6 @@ function render() {
   if (!state) return;
   $('version').textContent = `v${state.version}`;
   renderDevice();
-  renderUpdate();
   renderGate();
   for (const store of ['steam', 'epic', 'gog']) {
     const count = games(store).length;
@@ -82,13 +81,6 @@ function render() {
   else if (view.startsWith('bugs-')) renderBugs();
   else renderAbout();
   renderDrawer();
-}
-
-function renderUpdate() {
-  const update = state.update || {};
-  $('update-button').disabled = !!update.busy || !state.ready;
-  $('update-text').textContent = update.busy ? (update.message || 'Updating…') : 'Update iRelay';
-  $('update-button').title = update.message || '';
 }
 
 function renderDevice() {
@@ -384,7 +376,6 @@ document.querySelectorAll('#filter button').forEach((button) => {
 });
 $('search').addEventListener('input', (event) => { query = event.target.value.trim().toLowerCase(); render(); });
 $('refresh').addEventListener('click', () => (view.startsWith('bugs-') ? loadBugs(view) : irelay.refresh()));
-$('update-button').addEventListener('click', () => irelay.checkUpdate());
 $('device-select').addEventListener('change', (event) => irelay.selectDevice(event.target.value));
 $('content').addEventListener('click', (event) => {
   const hide = event.target.closest('[data-hide]');
