@@ -197,8 +197,14 @@ function renderTasks() {
 
 let savingSettings = false;
 let settingsError = '';
+let clearingCache = false;
 function renderSettings() {
   const enabled = state.settings && state.settings.accelerateDownloads === true;
+  const cache = state.cache || {};
+  const cacheBusy = clearingCache || cache.busy;
+  const cacheMessage = cache.error || (cache.result
+    ? (cache.result.freedBytes > 0 ? `${size(cache.result.freedBytes)} freed.` : 'No unused cache found.')
+      + (cache.result.warnings.length ? ' ' + cache.result.warnings.join(' ') : '') : '');
   setContent(`<div class="settings">
     <div class="panel settings-panel">
       <div class="settings-copy"><h3 id="acceleration-label">Accelerate downloads</h3>
@@ -209,8 +215,31 @@ function renderSettings() {
       </button>
     </div>
     <p class="note">Applies to current and future Steam downloads processed by iRelay. Epic Games and GOG downloads run on the device.</p>
+    <div class="panel settings-panel">
+      <div class="settings-copy"><h3>Unused cache</h3>
+        <p>Remove cached images, incomplete updates and older update files. The current version and the newest downloaded update are kept.</p></div>
+      <button class="secondary" id="clear-unused-cache" ${cacheBusy || (state.update && state.update.busy) ? 'disabled' : ''}>${cacheBusy ? 'Clearing…' : 'Clear unused cache'}</button>
+    </div>
+    <p class="note" role="status" aria-live="polite">${esc(cacheMessage)}</p>
     <div class="error" role="status" aria-live="polite">${esc(settingsError)}</div>
   </div>`);
+  $('clear-unused-cache').onclick = async () => {
+    if (clearingCache) return;
+    clearingCache = true;
+    settingsError = '';
+    renderSettings();
+    try {
+      const result = await irelay.clearUnusedCache();
+      state.cache = { busy: false, result, error: '' };
+    } catch (error) {
+      settingsError = String(error.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+    } finally {
+      clearingCache = false;
+      lastGrid = '';
+      render();
+      if (view === 'settings') $('clear-unused-cache').focus();
+    }
+  };
   $('download-acceleration').onclick = async () => {
     if (savingSettings) return;
     savingSettings = true;
@@ -234,7 +263,7 @@ function renderAbout() {
   const update = state.update || {};
   setContent(`<div class="about">
     <div class="panel"><h3>iRelay ${esc(state.version)}</h3><p>${esc(state.cable.message)}</p>
-      <div class="bugs-bar" style="margin:12px 0 0"><button class="primary" id="about-update" ${update.busy ? 'disabled' : ''}>Update iRelay</button>
+      <div class="bugs-bar" style="margin:12px 0 0"><button class="primary" id="about-update" ${update.busy || (state.cache && state.cache.busy) ? 'disabled' : ''}>Update iRelay</button>
       <button class="secondary" id="open-data">iRelay folder</button>
       <button class="secondary" id="open-program">Program folder</button>
       <button class="secondary" id="source">GitHub</button></div>

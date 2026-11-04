@@ -9,6 +9,7 @@ const updater = require('./updater');
 const Relay = require('./relay');
 const Processor = require('./process');
 const Settings = require('./settings');
+const { clearUnusedCache } = require('./cache');
 const settings = new Settings(path.join(app.getPath('userData'), 'settings.json'));
 
 const VERSION = (global.irelay && global.irelay.version) || app.getVersion();
@@ -27,6 +28,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     settings: { ...settings.value },
     boot: 'Starting…',
     update: { busy: false, message: '' },
+    cache: { busy: false, result: null, error: '' },
     ready: false,
     cable: { status: 'searching', message: 'Looking for a connected device…', device: null },
     devices: [],
@@ -98,9 +100,16 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
             await wait(async () => !toggle().disabled &&
               toggle().getAttribute('aria-checked') === String(original) &&
               (await irelay.state()).settings.accelerateDownloads === original);
+            const cleanup = document.getElementById('clear-unused-cache');
+            if (!cleanup) throw new Error('Clear unused cache button missing');
+            cleanup.click();
+            await wait(async () => {
+              const state = await irelay.state();
+              return !state.cache.busy && !!state.cache.result;
+            });
             document.querySelector('[data-view="steam"]').click();
           })()`);
-          log('settings navigation and acceleration smoke test passed');
+          log('settings navigation, acceleration and cache cleanup smoke test passed');
           log('smoke test passed');
           app.exit(0);
         } catch (error) {
@@ -244,6 +253,28 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     push();
     return state.settings;
   });
+  ipcMain.handle('clearUnusedCache', async () => {
+    if (!state.ready) throw new Error('Wait for iRelay to finish starting.');
+    if (state.update.busy) throw new Error('Wait for the update to finish before clearing cache.');
+    if (state.cache.busy) throw new Error('Cache cleanup is already running.');
+    state.cache = { busy: true, result: null, error: '' };
+    push();
+    try {
+      state.cache.result = await clearUnusedCache({
+        session: window.webContents.session,
+        userData: app.getPath('userData'),
+        currentRoot: global.irelay && global.irelay.root,
+      });
+      log(`unused cache cleared: ${state.cache.result.freedBytes} bytes, ${state.cache.result.removedFiles} update files`);
+      return state.cache.result;
+    } catch (error) {
+      state.cache.error = `Could not clear unused cache: ${error.message}`;
+      throw new Error(state.cache.error);
+    } finally {
+      state.cache.busy = false;
+      push();
+    }
+  });
   ipcMain.handle('openExternal', (_, url) => (/^https:\/\//.test(url) ? shell.openExternal(url) : null));
   ipcMain.handle('steamDLC', async (_, appId) => {
     if (!deviceId) return [];
@@ -324,7 +355,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     return shell.openPath(folder);
   });
   ipcMain.handle('checkUpdate', async () => {
-    if (state.update.busy) return;
+    if (state.update.busy || state.cache.busy) return;
     state.update = { ...state.update, busy: true, message: 'Checking for updates…' };
     push();
     try {
