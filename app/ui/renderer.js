@@ -9,6 +9,8 @@ let filter = 'all';
 let query = '';
 let selected = null; // { store, id }
 let lastGrid = '';
+let transferError = '';
+const downloadControlsSupported = () => Number(state?.cable?.device?.protocol || 0) >= 3;
 
 const $ = (id) => document.getElementById(id);
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -151,7 +153,7 @@ function renderLibrary() {
   }
   const html = `<div class="grid">${list.map((game) => {
     const meta = [
-      game.download ? `<span class="busy">Installing ${percent(game.download)}%</span>` : '',
+      game.download ? `<span class="busy">${game.download.phase === 'paused' ? 'Paused' : 'Installing'} ${percent(game.download)}%</span>` : '',
       game.onIPad && !game.download ? '<span class="ipad">Device</span>' : '',
     ].join('');
     return `<button class="card" data-store="${store}" data-id="${esc(game.id)}">
@@ -182,7 +184,13 @@ function renderTasks() {
   }
   const installHTML = installs.map((item) => `<div class="task"><div class="task-head"><div><div class="task-title">${esc(item.title)}</div>
     <div class="task-meta">${item.error ? `<span class="error">${esc(item.error)}</span>` : `${esc(TITLES[item.store] || item.store)} · ${esc(item.phase)} · ${percent(item)}%`}</div></div>
-    ${item.error ? `<button class="link" data-hide="${esc(itemKey('install', item))}" title="Remove">✕</button>` : ''}</div>
+    <div class="transfer-actions">
+      ${!item.error && downloadControlsSupported() ? `
+        <button class="secondary" data-control="${item.phase === 'paused' ? 'resume' : 'pause'}"
+          data-store="${esc(item.store)}" data-id="${esc(item.id)}">${item.phase === 'paused' ? 'Resume' : 'Pause'}</button>
+        <button class="secondary" data-control="stop" data-store="${esc(item.store)}" data-id="${esc(item.id)}">Stop</button>` : ''}
+      ${item.error ? `<button class="link" data-hide="${esc(itemKey('install', item))}" title="Remove">✕</button>` : ''}
+    </div></div>
     <div class="bar"><span class="sent" style="width:${percent(item)}%"></span></div></div>`).join('');
   const jobHTML = jobs.map((job) => {
     const done = Math.round(100 * job.done / Math.max(1, job.total));
@@ -192,7 +200,8 @@ function renderTasks() {
       ${job.finished ? `<button class="link" data-hide="${esc(itemKey('job', job))}" title="Remove">✕</button>` : ''}</div>
       <div class="bar"><span style="width:${done}%"></span></div></div>`;
   }).join('');
-  setContent(`<div class="tasks">${installHTML}${jobHTML}</div>`);
+  setContent(`<div class="tasks">${transferError ? `<div class="error" role="alert">${esc(transferError)}</div>` : ''}
+    ${installHTML}${jobHTML}</div>`);
 }
 
 let savingSettings = false;
@@ -208,13 +217,13 @@ function renderSettings() {
   setContent(`<div class="settings">
     <div class="panel settings-panel">
       <div class="settings-copy"><h3 id="acceleration-label">Accelerate downloads</h3>
-        <p id="acceleration-description">Download and process more Steam chunks at the same time on this PC. Uses more CPU, memory and bandwidth. Speed depends on your connection and device.</p></div>
+        <p id="acceleration-description">Faster Steam downloads using more PC resources.</p></div>
       <button class="acceleration-switch" id="download-acceleration" role="switch" aria-checked="${enabled}"
         aria-labelledby="acceleration-label" aria-describedby="acceleration-description" ${savingSettings ? 'disabled' : ''}>
         <span>${savingSettings ? 'Saving…' : enabled ? 'On' : 'Off'}</span><span class="switch-track" aria-hidden="true"><span></span></span>
       </button>
     </div>
-    <p class="note">Applies to current and future Steam downloads processed by iRelay. Epic Games and GOG downloads run on the device.</p>
+    <p class="note">Steam only. Uses more CPU and bandwidth.</p>
     <div class="panel settings-panel">
       <div class="settings-copy"><h3>Unused cache</h3>
         <p>Remove cached images, incomplete updates and older update files. The current version and the newest downloaded update are kept.</p></div>
@@ -334,7 +343,10 @@ function renderDrawer() {
   let actions;
   if (game.download) {
     actions = `<div class="task" style="margin:0"><div class="task-meta">${esc(game.download.phase)} · ${percent(game.download)}%</div>
-      <div class="bar"><span class="sent" style="width:${percent(game.download)}%"></span></div></div>`;
+      <div class="bar"><span class="sent" style="width:${percent(game.download)}%"></span></div></div>`
+      + (downloadControlsSupported() ? `<div class="transfer-actions">
+        <button class="secondary" data-action="${game.download.phase === 'paused' ? 'resume-download' : 'pause-download'}">${game.download.phase === 'paused' ? 'Resume' : 'Pause'}</button>
+        <button class="secondary" data-action="stop-download">Stop</button></div>` : '');
   } else {
     if (!game.onIPad) actions = '<button class="primary" data-action="install">Install on device</button>';
     else {
@@ -400,6 +412,15 @@ async function act(action, extra = {}) {
   try {
     if (action === 'close') { selected = null; render(); return; }
     if (action === 'load-dlc') { await irelay.steamDLC(game.id); return; }
+    if (['pause-download', 'resume-download', 'stop-download'].includes(action)) {
+      const operation = action.split('-')[0];
+      if (operation === 'stop' && !confirm('Stop this transfer and remove its incomplete files?')) return;
+      await irelay.controlDownload({ store: game.store, id: game.id, action: operation });
+      drawerKey = '';
+      lastGrid = '';
+      render();
+      return;
+    }
     if (action === 'install') await irelay.install({ ...request(game), withDLC: game.store === 'steam' && !game.onIPad ? [...picked] : [] });
     if (action === 'dlc') await irelay.install({ ...request(game), dlcId: extra.dlc });
     if (action === 'uninstall' || action === 'undlc') {
@@ -442,7 +463,22 @@ document.querySelectorAll('#filter button').forEach((button) => {
 $('search').addEventListener('input', (event) => { query = event.target.value.trim().toLowerCase(); render(); });
 $('refresh').addEventListener('click', () => (view.startsWith('bugs-') ? loadBugs(view) : irelay.refresh()));
 $('device-select').addEventListener('change', (event) => irelay.selectDevice(event.target.value));
-$('content').addEventListener('click', (event) => {
+$('content').addEventListener('click', async (event) => {
+  const control = event.target.closest('[data-control]');
+  if (control) {
+    const action = control.dataset.control;
+    if (action === 'stop' && !confirm('Stop this transfer and remove its incomplete files?')) return;
+    control.disabled = true;
+    transferError = '';
+    try {
+      await irelay.controlDownload({ store: control.dataset.store, id: control.dataset.id, action });
+    } catch (error) {
+      transferError = String(error.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+    }
+    lastGrid = '';
+    render();
+    return;
+  }
   const hide = event.target.closest('[data-hide]');
   if (hide) { hidden.add(hide.dataset.hide); lastGrid = ''; render(); return; }
   const card = event.target.closest('.card');
