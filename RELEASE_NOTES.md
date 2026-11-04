@@ -1,5 +1,4 @@
-# iRelay 3.5.1
+# iRelay 3.5.2
 
 ## O que mudou
-- Botão de limpeza de cache renomeado para **Clear**.
-- Descrições removidas de **Unused cache** e **Accelerate downloads**.
+- Adicionado espaçamento entre **Accelerate downloads** e **Unused cache** nas configurações.
