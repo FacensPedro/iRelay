@@ -74,5 +74,5 @@ jobs:
             echo "v$VERSION is already released"
           else
             gh release create "v$VERSION" "dist/iRelay-$VERSION-win-x64.zip" "dist/app-$VERSION.asar" "dist/app-$VERSION.asar.sha256" \
-              --title "iRelay $VERSION" --generate-notes
+              --title "iRelay $VERSION" --notes-file RELEASE_NOTES.md
           fi
