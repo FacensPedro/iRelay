@@ -21,9 +21,14 @@ test('iRelay forwards pause, resume and stop to the device instead of discarding
   assert.match(renderer, /irelay\.controlDownload\(/);
 });
 
-test('acceleration setting has concise explanatory text and retains its toggle', () => {
+test('settings show only control labels without explanatory paragraphs', () => {
   const renderer = read('app/ui/renderer.js');
-  assert.match(renderer, /Use all available bandwidth for Steam downloads\./);
-  assert.match(renderer, /No speed cap\. Uses more CPU and memory\./);
   assert.match(renderer, /id="download-acceleration"/);
+  assert.match(renderer, /aria-labelledby="acceleration-label"/);
+  assert.match(renderer, /<h3 id="acceleration-label">Accelerate downloads<\/h3>/);
+  assert.match(renderer, /<h3>Unused cache<\/h3>/);
+  assert.match(renderer, /cacheBusy \? 'Clearing…' : 'Clear'/);
+  assert.doesNotMatch(renderer, /acceleration-description/);
+  assert.doesNotMatch(renderer, /No speed cap\. Uses more CPU and memory/);
+  assert.doesNotMatch(renderer, /Remove cached images, incomplete updates/);
 });

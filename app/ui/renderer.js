@@ -221,18 +221,15 @@ function renderSettings() {
       + (cache.result.warnings.length ? ' ' + cache.result.warnings.join(' ') : '') : '');
   setContent(`<div class="settings">
     <div class="panel settings-panel">
-      <div class="settings-copy"><h3 id="acceleration-label">Accelerate downloads</h3>
-        <p id="acceleration-description">Use all available bandwidth for Steam downloads.</p></div>
+      <div class="settings-copy"><h3 id="acceleration-label">Accelerate downloads</h3></div>
       <button class="acceleration-switch" id="download-acceleration" role="switch" aria-checked="${enabled}"
-        aria-labelledby="acceleration-label" aria-describedby="acceleration-description" ${savingSettings ? 'disabled' : ''}>
+        aria-labelledby="acceleration-label" ${savingSettings ? 'disabled' : ''}>
         <span>${savingSettings ? 'Saving…' : enabled ? 'On' : 'Off'}</span><span class="switch-track" aria-hidden="true"><span></span></span>
       </button>
     </div>
-    <p class="note">No speed cap. Uses more CPU and memory.</p>
     <div class="panel settings-panel">
-      <div class="settings-copy"><h3>Unused cache</h3>
-        <p>Remove cached images, incomplete updates and older update files. The current version and the newest downloaded update are kept.</p></div>
-      <button class="secondary" id="clear-unused-cache" ${cacheBusy || (state.update && state.update.busy) ? 'disabled' : ''}>${cacheBusy ? 'Clearing…' : 'Clear unused cache'}</button>
+      <div class="settings-copy"><h3>Unused cache</h3></div>
+      <button class="secondary" id="clear-unused-cache" ${cacheBusy || (state.update && state.update.busy) ? 'disabled' : ''}>${cacheBusy ? 'Clearing…' : 'Clear'}</button>
     </div>
     <p class="note" role="status" aria-live="polite">${esc(cacheMessage)}</p>
     <div class="error" role="status" aria-live="polite">${esc(settingsError)}</div>
