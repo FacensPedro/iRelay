@@ -35,27 +35,57 @@ function exchange(entries, tag, timeout = 4000) {
   return new Promise((resolve, reject) => {
     const socket = net.connect(MUX_PORT, '127.0.0.1');
     let buffer = Buffer.alloc(0);
-    const timer = setTimeout(() => { socket.destroy(); reject(new Error('usbmux timeout')); }, timeout);
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      socket.off('data', onData);
+      socket.off('error', onError);
+      socket.off('close', onClose);
+      socket.off('connect', onConnect);
+    };
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      socket.destroy();
+      reject(error);
+    };
+    const onError = (error) => fail(error);
+    const onClose = () => {
+      const error = new Error('Apple Mobile Device connection closed');
+      error.code = 'ECONNRESET';
+      fail(error);
+    };
+    const onConnect = () => {
+      try { socket.write(frame(entries, tag)); }
+      catch (error) { fail(error); }
+    };
     const onData = (data) => {
+      if (settled) return;
+      // Bound protocol replies independently of the bytes that will later
+      // traverse the USB socket; do not retain an unbounded plist in memory.
       buffer = Buffer.concat([buffer, data]);
       if (buffer.length < 16) return;
       const length = buffer.readUInt32LE(0);
-      if (length < 16 || length > 16 * 1024 * 1024) { cleanup(); socket.destroy(); reject(new Error('usbmux: invalid reply')); return; }
+      if (length < 16 || length > 16 * 1024 * 1024) {
+        return fail(new Error('usbmux: invalid reply'));
+      }
       if (buffer.length < length) return;
+      settled = true;
       cleanup();
       const rest = buffer.subarray(length);
       if (rest.length) socket.unshift(rest);
       resolve({ socket, xml: buffer.subarray(16, length).toString('utf8') });
     };
-    const onError = (error) => { cleanup(); reject(error); };
-    function cleanup() {
-      clearTimeout(timer);
-      socket.off('data', onData);
-      socket.off('error', onError);
-    }
+    const timer = setTimeout(() => {
+      const error = new Error('Apple Mobile Device service did not respond in time');
+      error.code = 'ETIMEDOUT';
+      fail(error);
+    }, timeout);
     socket.on('data', onData);
     socket.on('error', onError);
-    socket.on('connect', () => socket.write(frame(entries, tag)));
+    socket.on('close', onClose);
+    socket.on('connect', onConnect);
   });
 }
 
@@ -79,7 +109,7 @@ async function listDevices() {
 /// A raw TCP connection to `port` on the device, or an error when nothing listens there.
 async function connect(deviceId, port) {
   const swapped = ((port & 0xff) << 8) | ((port >> 8) & 0xff); // network byte order
-  const { socket, xml } = await exchange({ MessageType: 'Connect', DeviceID: deviceId, PortNumber: swapped }, 2);
+  const { socket, xml } = await exchange({ MessageType: 'Connect', DeviceID: deviceId, PortNumber: swapped }, 2, 12000);
   const number = /<key>Number<\/key>\s*<integer>(\d+)<\/integer>/.exec(xml);
   if (!number || number[1] !== '0') {
     socket.destroy();
