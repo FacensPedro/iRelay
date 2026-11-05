@@ -13,7 +13,9 @@ const os = require('os');
 const usbmux = require('./usbmux');
 
 const DEVICE_PORT = 27091;
-const IDLE = 6;
+// Three idle tunnels are enough for control messages. More idle USB sockets
+// increase pressure on iDeck during a long transfer without improving throughput.
+const IDLE = 3;
 const MAX_RANK_REQUEST_BYTES = 16 * 1024;
 const MAX_MANIFEST_BYTES = 64 * 1024 * 1024;
 
@@ -96,13 +98,22 @@ class Relay {
     return json(404, { error: 'not found' });
   }
 
-  /// Keeps `IDLE` cable connections open to iDeck's port on each device.
+  /// Keeps a small number of cable connections available without starting
+  /// overlapping usbmux connection bursts on successive 2-second polls.
   async tunnels(devices) {
+    if (this.filling) return this.filling;
+    this.filling = this.refill(devices);
+    try { await this.filling; }
+    finally { this.filling = null; }
+  }
+
+  async refill(devices) {
     for (const device of devices) {
       let idle = this.idle.get(device.id) || 0;
       while (idle < IDLE) {
         let socket;
-        try { socket = await usbmux.connect(device.id, DEVICE_PORT); } catch { break; }
+        try { socket = await usbmux.connect(device.id, DEVICE_PORT); }
+        catch { break; } // iDeck may be restarting or the USB port may be busy.
         idle += 1;
         this.idle.set(device.id, idle);
         this.serve(device.id, socket);
