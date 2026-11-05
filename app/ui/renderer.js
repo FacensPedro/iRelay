@@ -198,7 +198,7 @@ function renderTasks() {
   const installHTML = installs.map((item) => `<div class="task"><div class="task-head"><div class="task-identity">
     ${transferArtwork(item.store, item.id)}
     <div class="task-copy"><div class="task-title">${esc(item.title)}</div>
-    <div class="task-meta">${item.error ? `<span class="error">${esc(item.error)}</span>` : `${esc(TITLES[item.store] || item.store)} · ${esc(item.phase)} · ${percent(item)}%`}</div></div>
+    <div class="task-meta">${item.error ? `<span class="error">${esc(item.error)}</span>` : `${esc(TITLES[item.store] || item.store)} · ${esc(item.phase)} · ${percent(item)}%`}</div></div></div>
     <div class="transfer-actions">
       ${!item.error && downloadControlsSupported() ? `
         <button class="secondary" data-control="${item.phase === 'paused' ? 'resume' : 'pause'}"
@@ -213,7 +213,7 @@ function renderTasks() {
     return `<div class="task"><div class="task-head"><div class="task-identity">
       ${transferArtwork('steam', job.appId)}
       <div class="task-copy"><div class="task-title">${esc(job.name)}</div>
-      <div class="task-meta">Processed on this PC · ${done}% · ${size(job.bytes)} of ${size(job.totalBytes)}${job.finished ? '' : ` · ${size(speed)}/s`}${job.failed ? ` · ${job.failed} left to iDeck` : ''}</div></div>
+      <div class="task-meta">Processed on this PC · ${done}% · ${size(job.bytes)} of ${size(job.totalBytes)}${job.finished ? '' : ` · ${size(speed)}/s`}${job.failed ? ` · ${job.failed} left to iDeck` : ''}</div></div></div>
       <div class="transfer-actions">
         ${!job.finished && downloadControlsSupported() && job.appId ? `
           <button class="secondary" data-control="pause" data-store="steam" data-id="${esc(job.appId)}">Pause</button>
