@@ -70,8 +70,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Keep published notes aligned with the reviewed English-only file,
+          # including when an existing version's description is corrected.
           if gh release view "v$VERSION" >/dev/null 2>&1; then
-            echo "v$VERSION is already released"
+            gh release edit "v$VERSION" --title "iRelay $VERSION" --notes-file RELEASE_NOTES.md
           else
             gh release create "v$VERSION" "dist/iRelay-$VERSION-win-x64.zip" "dist/app-$VERSION.asar" "dist/app-$VERSION.asar.sha256" \
               --title "iRelay $VERSION" --notes-file RELEASE_NOTES.md
