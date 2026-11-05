@@ -167,13 +167,26 @@ function setContent(html) {
   if (html === lastGrid) return;
   lastGrid = html;
   $('content').innerHTML = html;
-  $('content').querySelectorAll('.cover img').forEach((img) => {
+  $('content').querySelectorAll('.cover img, .transfer-cover img').forEach((img) => {
     img.addEventListener('error', () => img.remove());
   });
 }
 
 const hidden = new Set();
 function itemKey(kind, item) { return kind === 'install' ? `i:${item.store}:${item.id}:${item.error || ''}` : `j:${item.id}`; }
+
+function transferCover(store, id) {
+  const game = games(store).find((candidate) => String(candidate.id) === String(id));
+  const candidate = game?.cover || (store === 'steam' && /^[0-9]+$/.test(String(id)) ? steamArt(id) : '');
+  // Provider images are only loaded from HTTPS, never from a local file or an
+  // untrusted URL scheme received from library metadata.
+  return typeof candidate === 'string' && /^https:\/\//i.test(candidate) ? candidate : '';
+}
+
+function transferArtwork(store, id) {
+  const cover = transferCover(store, id);
+  return `<div class="transfer-cover" aria-hidden="true">${cover ? `<img src="${esc(cover)}" loading="lazy" alt="">` : '<span>▣</span>'}</div>`;
+}
 
 function renderTasks() {
   const installs = (state.installs || []).filter((item) => !hidden.has(itemKey('install', item)));
@@ -182,7 +195,9 @@ function renderTasks() {
     setContent(emptyState('No transfers yet', 'Downloads to the connected device appear here.'));
     return;
   }
-  const installHTML = installs.map((item) => `<div class="task"><div class="task-head"><div><div class="task-title">${esc(item.title)}</div>
+  const installHTML = installs.map((item) => `<div class="task"><div class="task-head"><div class="task-identity">
+    ${transferArtwork(item.store, item.id)}
+    <div class="task-copy"><div class="task-title">${esc(item.title)}</div>
     <div class="task-meta">${item.error ? `<span class="error">${esc(item.error)}</span>` : `${esc(TITLES[item.store] || item.store)} · ${esc(item.phase)} · ${percent(item)}%`}</div></div>
     <div class="transfer-actions">
       ${!item.error && downloadControlsSupported() ? `
@@ -195,7 +210,9 @@ function renderTasks() {
   const jobHTML = jobs.map((job) => {
     const done = Math.round(100 * job.done / Math.max(1, job.total));
     const speed = job.seconds > 0 ? job.bytes / job.seconds : 0;
-    return `<div class="task"><div class="task-head"><div><div class="task-title">${esc(job.name)}</div>
+    return `<div class="task"><div class="task-head"><div class="task-identity">
+      ${transferArtwork('steam', job.appId)}
+      <div class="task-copy"><div class="task-title">${esc(job.name)}</div>
       <div class="task-meta">Processed on this PC · ${done}% · ${size(job.bytes)} of ${size(job.totalBytes)}${job.finished ? '' : ` · ${size(speed)}/s`}${job.failed ? ` · ${job.failed} left to iDeck` : ''}</div></div>
       <div class="transfer-actions">
         ${!job.finished && downloadControlsSupported() && job.appId ? `
@@ -306,13 +323,42 @@ function renderBugs() {
   if (!data) { setContent(emptyState('Reading logs…', '')); return; }
   if (data.error) { setContent(emptyState('Logs unavailable', data.error)); return; }
   const issues = data.issues || [];
-  const list = issues.map((line) => `<div class="bug ${/error|fatal|crash|exception/i.test(line) ? 'err' : ''}">${esc(line)}</div>`).join('');
-  // Lists start collapsed; their headers open them.
-  setContent(`<div class="bugs-bar"><button class="secondary" id="copy-bugs">Copy</button>
-    <button class="secondary" id="clear-bugs">Clear</button></div>
-    ${issues.length ? `<button class="fold" id="fold-bugs">${bugsOpen ? '▾' : '▸'} Bugs (${issues.length})</button>
-      ${bugsOpen ? `<div class="bugs">${list}</div>` : ''}` : emptyState('No bugs found', '')}
-    ${data.log ? `<button class="fold" id="fold-log">${logOpen ? '▾' : '▸'} Log</button>${logOpen ? `<div class="logtail">${esc(data.log)}</div>` : ''}` : ''}`);
+  const critical = issues.filter((line) => /error|fatal|crash|exception|failed/i.test(line)).length;
+  const list = issues.map((line, index) => {
+    const severe = /error|fatal|crash|exception|failed/i.test(line);
+    return `<div class="bug ${severe ? 'err' : ''}">
+      <span class="bug-index">${String(index + 1).padStart(2, '0')}</span>
+      <span class="bug-message">${esc(line)}</span>
+      <span class="bug-level ${severe ? 'critical' : ''}">${severe ? 'Error' : 'Notice'}</span>
+    </div>`;
+  }).join('');
+  const source = view === 'bugs-irelay' ? 'iRelay' : 'iDeck';
+  const status = issues.length ? 'Issues detected' : 'No issues detected';
+  setContent(`<div class="bug-dashboard">
+    <div class="panel bug-summary">
+      <div><span class="bug-eyebrow">${source} diagnostics</span><h3>${status}</h3>
+        <p>Review the reported issues and complete diagnostic log.</p></div>
+      <div class="bug-count" aria-label="${issues.length} issues">${issues.length}<span>Issues</span></div>
+    </div>
+    <div class="bugs-bar bug-toolbar">
+      <span class="bug-toolbar-label">${critical} critical · ${issues.length - critical} other</span>
+      <button class="secondary" id="copy-bugs" ${!issues.length && !data.log ? 'disabled' : ''}>Copy report</button>
+      <button class="secondary" id="clear-bugs" ${!issues.length && !data.log ? 'disabled' : ''}>Clear logs</button>
+    </div>
+    <section class="panel bug-section">
+      <button class="fold" id="fold-bugs" aria-expanded="${bugsOpen}" aria-controls="bug-issues">
+        <span>Reported issues <span class="bug-inline-count">${issues.length}</span></span>
+        <span class="fold-chevron">${bugsOpen ? '▾' : '▸'}</span>
+      </button>
+      ${bugsOpen ? `<div id="bug-issues" class="bugs">${list || '<p class="bug-empty">No reported issues.</p>'}</div>` : ''}
+    </section>
+    <section class="panel bug-section">
+      <button class="fold" id="fold-log" aria-expanded="${logOpen}" aria-controls="bug-raw-log">
+        <span>Diagnostic log</span><span class="fold-chevron">${logOpen ? '▾' : '▸'}</span>
+      </button>
+      ${logOpen ? `<pre id="bug-raw-log" class="logtail">${esc(data.log || 'No diagnostic log available.')}</pre>` : ''}
+    </section>
+  </div>`);
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
   on('copy-bugs', () => navigator.clipboard.writeText([...issues, '', data.log || ''].join('\n')));
   on('fold-bugs', () => { bugsOpen = !bugsOpen; lastGrid = ''; render(); });
