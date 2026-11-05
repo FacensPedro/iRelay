@@ -7,10 +7,10 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const notes = fs.readFileSync(path.join(root, 'RELEASE_NOTES.md'), 'utf8').replace(/\r\n/g, '\n');
 const workflow = fs.readFileSync(path.join(root, '.github/workflows/build.yml'), 'utf8');
-const { version } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 
 test('release notes use the current version and an English-only changelog', () => {
-  assert.ok(notes.startsWith(`# iRelay ${version}\n\n## What's Changed\n`));
+  assert.ok(notes.startsWith("## What's Changed\n"));
+  assert.doesNotMatch(notes, /^#\\s*iRelay\\b/im);
   assert.match(notes, /^- [A-Z][^\n]+\.$/m);
   assert.doesNotMatch(notes, /[^\x09\x0A\x0D\x20-\x7E]/);
   assert.doesNotMatch(notes, /\b(?:O que mudou|Adicionado|Alterações|Configurações|Corrigido|Atualização)\b/i);
