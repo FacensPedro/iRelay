@@ -1,6 +1,6 @@
 ## What's Changed
-- Changed in-app updates to install the complete Windows application, including Electron, Node.js, executable files and resources, instead of replacing only an ASAR archive.
-- Added SHA-256 validation and archive verification before opening the official installer.
-- Prevented application updates from interrupting active Steam USB transfers.
-- Added adaptive USB backpressure to reduce buffered chunks when device transfers slow down, while keeping downloads and transfers concurrent.
-- Added transfer diagnostics and regression coverage for the updater and USB pipeline.
+- Redesigned Copy report and Clear logs controls in both iRelay and iDeck diagnostics tabs.
+- Added distinct action styles, consistent icons, keyboard focus states, and accessible status feedback.
+- Added confirmation before clearing diagnostic logs to prevent accidental deletion.
+- Improved clipboard success and failure messages and reporting of log-clearing errors.
+- Preserved existing game files, downloads, settings, and other application data when clearing diagnostic logs.
