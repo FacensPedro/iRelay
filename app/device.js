@@ -10,6 +10,8 @@ const SERVICE_PORT = 27093;
 const http = require('http');
 // Cap device-side writes while iOS handles memory pressure and SHA-1 checks.
 const MAX_DEVICE_SOCKETS = 4;
+const USB_RECOVERY_COOLDOWN_MS = 20000;
+const USB_RAMP_SUCCESS_COUNT = 12;
 const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 const agents = new Map();
 const gates = new Map();
@@ -17,28 +19,61 @@ const gates = new Map();
 // Agent sockets are opened asynchronously by usbmux. Node's socket counter
 // cannot include a socket until the connect callback runs, so use an explicit
 // request gate to cap concurrent USB connections even during their handshakes.
-function acquire(deviceId) {
+function gateFor(deviceId) {
   let gate = gates.get(deviceId);
   if (!gate) {
-    gate = { active: 0, pending: [] };
+    gate = { active: 0, pending: [], limit: MAX_DEVICE_SOCKETS,
+      lastFailure: 0, successful: 0 };
     gates.set(deviceId, gate);
   }
-  return new Promise((resolve, reject) => {
-    const release = () => {
+  return gate;
+}
+
+function drain(gate) {
+  while (gate.active < gate.limit && gate.pending.length) {
+    const waiting = gate.pending.shift();
+    gate.active += 1;
+    waiting.resolve(() => {
       gate.active -= 1;
-      if (gate.pending.length) {
-        const waiting = gate.pending.shift();
-        gate.active += 1;
-        waiting.resolve(release);
-      }
-    };
-    if (gate.active < MAX_DEVICE_SOCKETS) {
-      gate.active += 1;
-      resolve(release);
-    } else {
-      gate.pending.push({ resolve, reject });
-    }
+      drain(gate);
+    });
+  }
+}
+
+function acquire(deviceId) {
+  const gate = gateFor(deviceId);
+  return new Promise((resolve, reject) => {
+    gate.pending.push({ resolve, reject });
+    drain(gate);
   });
+}
+
+function isTransientUSB(error) {
+  const code = String(error?.code || '');
+  if (['ECONNRESET', 'EPIPE', 'ETIMEDOUT', 'ECONNREFUSED', 'ENOTCONN', 'EREFUSED',
+       'ERR_STREAM_PREMATURE_CLOSE'].includes(code)) return true;
+  return /socket hang up|iDeck is not listening|iDeck USB service unavailable|usbmux|Apple Mobile Device|USB device disconnected|cable connection closed|iDeck did not answer|cable connection closed/i
+    .test(String(error?.message || error));
+}
+
+function noteFailure(deviceId, error) {
+  if (!isTransientUSB(error)) return;
+  const gate = gateFor(deviceId);
+  gate.limit = 1;
+  gate.lastFailure = Date.now();
+  gate.successful = 0;
+}
+
+function noteSuccess(deviceId) {
+  const gate = gateFor(deviceId);
+  if (gate.limit === MAX_DEVICE_SOCKETS ||
+      Date.now() - gate.lastFailure < USB_RECOVERY_COOLDOWN_MS) return;
+  gate.successful += 1;
+  if (gate.successful >= USB_RAMP_SUCCESS_COUNT) {
+    gate.limit += 1;
+    gate.successful = 0;
+    drain(gate);
+  }
 }
 
 // Reuse a bounded set of trusted usbmux sockets. iDeck's service already
@@ -91,7 +126,7 @@ async function request(deviceId, method, path, { json, file, size, data, timeout
 
   const release = await acquire(deviceId);
   try {
-    return await new Promise((resolve, reject) => {
+    const response = await new Promise((resolve, reject) => {
     let completed = false;
     const finish = (error, result) => {
       if (completed) return;
@@ -154,6 +189,11 @@ async function request(deviceId, method, path, { json, file, size, data, timeout
       req.end(body);
     }
     });
+    noteSuccess(deviceId);
+    return response;
+  } catch (error) {
+    noteFailure(deviceId, error);
+    throw error;
   } finally {
     release();
   }
