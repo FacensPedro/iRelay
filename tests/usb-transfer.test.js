@@ -77,7 +77,7 @@ test('Steam chunk writes reuse USB connections with at most eight live sockets',
         i * 1024, 65536, 'a'.repeat(40), Buffer.alloc(1024, i))));
     assert.equal(values.length, 40);
     assert.ok(values.every((v) => v.received === 1024));
-    assert.ok(stats().peakConnections <= 8, 'pool must cap simultaneously active USB sockets; peak=' + stats().peakConnections);
+    assert.ok(stats().peakConnections <= 4, 'pool must cap simultaneously active USB sockets; peak=' + stats().peakConnections);
   });
 });
 
