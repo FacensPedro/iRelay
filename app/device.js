@@ -6,59 +6,111 @@ const usbmux = require('./usbmux');
 
 const SERVICE_PORT = 27093;
 
+
+const http = require('http');
+const MAX_DEVICE_SOCKETS = 8;
+const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
+const agents = new Map();
+
+// Reuse a bounded set of trusted usbmux sockets. iDeck's service already
+// supports HTTP/1.1 keep-alive, so there is no need to pair/connect the USB
+// transport for every Steam chunk. The native HTTP client applies backpressure.
+function agentFor(deviceId) {
+  let agent = agents.get(deviceId);
+  if (!agent) {
+    agent = new http.Agent({
+      keepAlive: true,
+      keepAliveMsecs: 1000,
+      maxSockets: MAX_DEVICE_SOCKETS,
+      maxFreeSockets: MAX_DEVICE_SOCKETS,
+      scheduling: 'lifo',
+    });
+    agent.createConnection = (_options, callback) => {
+      usbmux.connect(deviceId, SERVICE_PORT).then(
+        (socket) => callback(null, socket),
+        (error) => callback(error)
+      );
+    };
+    agents.set(deviceId, agent);
+  }
+  return agent;
+}
+
+function closeOtherConnections(activeDeviceId) {
+  for (const [id, agent] of agents) {
+    if (id === activeDeviceId) continue;
+    agent.destroy();
+    agents.delete(id);
+  }
+}
+
 function request(deviceId, method, path, { json, file, size, data, timeout = 120000 } = {}) {
+  let body = null;
+  if (json !== undefined) body = Buffer.from(JSON.stringify(json), 'utf8');
+  else if (data !== undefined && data !== null) body = data;
+  const length = file ? size : (body ? body.length : 0);
+  if (!Number.isSafeInteger(length) || length < 0) {
+    return Promise.reject(new Error('Invalid transfer length'));
+  }
+  if (file && body) return Promise.reject(new Error('Cannot send a file and an in-memory body together'));
+
   return new Promise((resolve, reject) => {
-    usbmux.connect(deviceId, SERVICE_PORT).then((socket) => {
-      let body = null;
-      let length = 0;
-      if (json !== undefined) {
-        body = Buffer.from(JSON.stringify(json), 'utf8');
-        length = body.length;
-      } else if (data) {
-        body = data;
-        length = data.length;
-      } else if (file) {
-        length = size;
-      }
-      const head = `${method} ${path} HTTP/1.1\r\nHost: ideck\r\nConnection: close\r\nContent-Length: ${length}\r\n`
-        + (json !== undefined ? 'Content-Type: application/json\r\n' : '') + '\r\n';
-      let response = Buffer.alloc(0);
-      let settled = false;
-      const timer = setTimeout(() => fail(new Error('iDeck did not answer in time')), timeout);
-      function fail(error) {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        socket.destroy();
-        reject(error);
-      }
-      function check() {
-        const end = response.indexOf('\r\n\r\n');
-        if (end < 0) return;
-        const header = response.subarray(0, end).toString('utf8');
-        const status = Number((/^HTTP\/1\.1 (\d+)/.exec(header) || [])[1] || 0);
-        const contentLength = Number((/content-length:\s*(\d+)/i.exec(header) || [])[1] || 0);
-        if (response.length < end + 4 + contentLength) return;
-        settled = true;
-        clearTimeout(timer);
-        socket.destroy();
-        const text = response.subarray(end + 4, end + 4 + contentLength).toString('utf8');
-        let data = {};
-        try { data = text ? JSON.parse(text) : {}; } catch { data = {}; }
-        if (status >= 200 && status < 300) resolve(data);
-        else reject(new Error(data.error || `iDeck answered HTTP ${status}`));
-      }
-      socket.on('data', (chunk) => { response = Buffer.concat([response, chunk]); check(); });
-      socket.on('error', fail);
-      socket.on('close', () => { if (!settled) fail(new Error('The cable connection closed')); });
-      socket.write(head);
-      if (body) socket.write(body);
-      if (file) {
-        const stream = fs.createReadStream(file, { highWaterMark: 1024 * 1024 });
-        stream.on('error', fail);
-        stream.pipe(socket, { end: false });
-      }
-    }, reject);
+    let completed = false;
+    const finish = (error, result) => {
+      if (completed) return;
+      completed = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve(result);
+    };
+    const req = http.request({
+      hostname: 'ideck',
+      port: SERVICE_PORT,
+      method, path,
+      agent: agentFor(deviceId),
+      headers: {
+        'Content-Length': length,
+        'Content-Type': json !== undefined ? 'application/json' : 'application/octet-stream',
+        Connection: 'keep-alive',
+      },
+    }, (res) => {
+      const chunks = [];
+      let received = 0;
+      res.on('data', (chunk) => {
+        received += chunk.length;
+        if (received > MAX_RESPONSE_BYTES) {
+          req.destroy(new Error('iDeck response exceeded the size limit'));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      res.once('error', (error) => finish(error));
+      res.once('aborted', () => finish(new Error('The cable connection closed during the response')));
+      res.once('end', () => {
+        let parsed = {};
+        try {
+          const text = Buffer.concat(chunks, received).toString('utf8');
+          parsed = text ? JSON.parse(text) : {};
+        } catch { /* Keep compatibility with empty/older device responses. */ }
+        if (res.statusCode >= 200 && res.statusCode < 300) finish(null, parsed);
+        else finish(new Error(parsed.error || 'iDeck answered HTTP ' + res.statusCode));
+      });
+    });
+    const timer = setTimeout(() => req.destroy(new Error('iDeck did not answer in time')), timeout);
+    req.once('error', (error) => finish(error));
+    req.once('close', () => {
+      if (!completed) finish(new Error('The cable connection closed'));
+    });
+    if (file) {
+      // Stream directly to the USB socket using HTTP backpressure; there is
+      // no multi-megabyte buffer or per-chunk Buffer.concat in JavaScript.
+      const stream = fs.createReadStream(file, { highWaterMark: 256 * 1024 });
+      stream.once('error', (error) => req.destroy(error));
+      req.once('close', () => stream.destroy());
+      stream.pipe(req);
+    } else {
+      req.end(body);
+    }
   });
 }
 
@@ -67,6 +119,7 @@ function query(params) {
 }
 
 module.exports = {
+  closeOtherConnections,
   info: (id) => request(id, 'GET', '/info', { timeout: 8000 }),
   install: (id, body) => request(id, 'POST', '/install', { json: body, timeout: 60000 }),
   installs: (id) => request(id, 'GET', '/installs', { timeout: 10000 }),
