@@ -74,3 +74,7 @@ npm run build
 ## License
 
 MIT
+
+### USB recovery during large Steam installs
+
+Temporary Apple Mobile Device Service failures do not immediately invalidate a trusted iDeck connection. The USB status remains in recovery for up to 45 seconds, Steam writes retry transient errors, and iRelay waits up to 90 seconds without a progress poll before abandoning a PC-side processing job. Reopening iDeck after an iOS process exit may allow installation to resume using the existing Steam journals; this does not guarantee that iOS will retain the process under critical memory pressure. The PC-side in-flight buffer budget is approximately 64 MiB, and at most four device-side HTTP requests run at once.
