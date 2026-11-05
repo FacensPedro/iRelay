@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.join(__dirname, '..');
-const notes = fs.readFileSync(path.join(root, 'RELEASE_NOTES.md'), 'utf8');
+const notes = fs.readFileSync(path.join(root, 'RELEASE_NOTES.md'), 'utf8').replace(/\r\n/g, '\n');
 const workflow = fs.readFileSync(path.join(root, '.github/workflows/build.yml'), 'utf8');
 const { version } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 
