@@ -37,3 +37,11 @@ test('settings panels have vertical spacing between download acceleration and un
   const styles = read('app/ui/styles.css');
   assert.match(styles, /\.settings > \.settings-panel \+ \.settings-panel \{ margin-top: 20px; \}/);
 });
+
+test('game size displays published minimum storage instead of silently hiding a missing Steam depot size', () => {
+  const renderer = read('app/ui/renderer.js');
+  assert.match(renderer, /sizeSource: game\.sizeSource \|\| 'metadata'/);
+  assert.match(renderer, /requiredSpaceGB: game\.requiredSpaceGB \|\| 0/);
+  assert.match(renderer, /game\.sizeSource === 'requirements' \? 'Minimum space' : 'Size'/);
+  assert.match(renderer, /Number\(game\.requiredSpaceGB\)\.toFixed\(1\)/);
+});

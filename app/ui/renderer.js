@@ -39,7 +39,9 @@ function games(store) {
     const title = store === 'steam' ? game.name : game.title;
     const cover = store === 'steam' ? steamArt(game.appId) : game.cover;
     return { store, id, title, cover, hero: store === 'steam' ? steamArt(game.appId, 'hero') : game.cover,
-      onIPad: game.installed, update: !!game.update, size: game.size || 0, download: download && download.phase !== 'failed' ? download : null,
+      onIPad: game.installed, update: !!game.update, size: game.size || 0,
+      sizeSource: game.sizeSource || 'metadata', requiredSpaceGB: game.requiredSpaceGB || 0,
+      download: download && download.phase !== 'failed' ? download : null,
       failed: download && download.error ? download.error : null, raw: game };
   }).sort((a, b) => a.title.localeCompare(b.title));
 }
@@ -425,7 +427,7 @@ function renderDrawer() {
     <div class="drawer-body"><h2>${esc(game.title)}</h2><div class="muted">${esc(store)}</div>
       <div class="status-row">
         <div class="status"><div class="label">Device</div><div class="value ${game.onIPad ? 'yes' : ''}">${game.onIPad ? (game.update ? 'Update available' : 'Installed') : 'Not installed'}</div></div>
-        ${game.size ? `<div class="status"><div class="label">Size</div><div class="value">${bytes(game.size)}</div></div>` : ''}
+        ${game.size ? `<div class="status"><div class="label">${game.sizeSource === 'requirements' ? 'Minimum space' : 'Size'}</div><div class="value">${game.sizeSource === 'requirements' ? `≈ ${Number(game.requiredSpaceGB).toFixed(1)} GB` : bytes(game.size)}</div></div>` : ''}
       </div>
       <div class="actions">${actions}</div>
       <div class="note">${game.store === 'steam' ? 'This PC downloads and unpacks the game and writes it straight into iDeck. Nothing is installed on Windows.' : 'iDeck downloads the game. Nothing is installed on Windows.'}</div>
