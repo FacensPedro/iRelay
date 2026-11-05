@@ -49,7 +49,7 @@ test('Transfers show compact game artwork and Bugs pages have summary and diagno
   const css = read('app/ui/styles.css');
   assert.match(renderer, /transferArtwork\(item.store, item.id\)/);
   assert.match(renderer, /transferArtwork\('steam', job.appId\)/);
-  assert.match(renderer, /class="bug-summary"/);
+  assert.match(renderer, /class="panel bug-summary"/);
   assert.match(renderer, /class="bug-toolbar-label"/);
   assert.match(renderer, /aria-expanded="\$\{bugsOpen\}"/);
   assert.match(css, /\.transfer-cover \{/);
