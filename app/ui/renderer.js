@@ -3,6 +3,7 @@
 
 const TITLES = { steam: 'Steam', epic: 'Epic Games', gog: 'GOG', tasks: 'Transfers', settings: 'Settings', about: 'About', 'bugs-irelay': 'iRelay bugs', 'bugs-ideck': 'iDeck bugs' };
 let bugs = { 'bugs-irelay': null, 'bugs-ideck': null };
+let bugAction = { kind: '', confirm: false, busy: false, notice: '', failed: false };
 let state = null;
 let view = 'steam';
 let filter = 'all';
@@ -324,6 +325,9 @@ function renderBugs() {
   const data = bugs[view];
   if (!data) { setContent(emptyState('Reading logs…', '')); return; }
   if (data.error) { setContent(emptyState('Logs unavailable', data.error)); return; }
+  if (bugAction.kind !== view) {
+    bugAction = { kind: view, confirm: false, busy: false, notice: '', failed: false };
+  }
   const issues = data.issues || [];
   const critical = issues.filter((line) => /error|fatal|crash|exception|failed/i.test(line)).length;
   const list = issues.map((line, index) => {
@@ -336,17 +340,35 @@ function renderBugs() {
   }).join('');
   const source = view === 'bugs-irelay' ? 'iRelay' : 'iDeck';
   const status = issues.length ? 'Issues detected' : 'No issues detected';
+  const available = !!(issues.length || data.log);
+  const copyIcon = '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+  const trashIcon = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6m4-6v6"/></svg>';
+  const busy = bugAction.busy;
+  const confirmation = bugAction.confirm ? `<div class="bug-confirm" role="group" aria-label="Confirm clearing ${source} logs">
+    <div class="bug-confirm-copy"><strong>Clear ${source} diagnostic logs?</strong>
+      <span>This cannot be undone. Installed games and settings will not be changed.</span></div>
+    <div class="bug-confirm-actions">
+      <button type="button" class="bug-action bug-action-neutral" id="cancel-clear-bugs">Cancel</button>
+      <button type="button" class="bug-action bug-action-confirm" id="confirm-clear-bugs" ${busy ? 'disabled' : ''}>${busy ? 'Clearing…' : 'Clear logs'}</button>
+    </div>
+  </div>` : '';
   setContent(`<div class="bug-dashboard">
     <div class="panel bug-summary">
       <div><span class="bug-eyebrow">${source} diagnostics</span><h3>${status}</h3>
         <p>Review the reported issues and complete diagnostic log.</p></div>
       <div class="bug-count" aria-label="${issues.length} issues">${issues.length}<span>Issues</span></div>
     </div>
-    <div class="bugs-bar bug-toolbar">
+    <div class="bug-toolbar" aria-label="${source} report actions">
       <span class="bug-toolbar-label">${critical} critical · ${issues.length - critical} other</span>
-      <button class="secondary" id="copy-bugs" ${!issues.length && !data.log ? 'disabled' : ''}>Copy report</button>
-      <button class="secondary" id="clear-bugs" ${!issues.length && !data.log ? 'disabled' : ''}>Clear logs</button>
+      <div class="bug-actions">
+        <button type="button" class="bug-action bug-action-copy" id="copy-bugs" ${!available || busy ? 'disabled' : ''}
+          title="Copy issues and diagnostic log to clipboard">${copyIcon}<span>Copy report</span></button>
+        <button type="button" class="bug-action bug-action-clear" id="clear-bugs" ${!available || busy ? 'disabled' : ''}
+          title="Clear diagnostic logs (confirmation required)">${trashIcon}<span>Clear logs</span></button>
+      </div>
     </div>
+    ${confirmation}
+    ${bugAction.notice ? `<div class="bug-feedback ${bugAction.failed ? 'bug-feedback-error' : ''}" role="status" aria-live="polite">${esc(bugAction.notice)}</div>` : ''}
     <section class="panel bug-section">
       <button class="fold" id="fold-bugs" aria-expanded="${bugsOpen}" aria-controls="bug-issues">
         <span>Reported issues <span class="bug-inline-count">${issues.length}</span></span>
@@ -362,21 +384,60 @@ function renderBugs() {
     </section>
   </div>`);
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
-  on('copy-bugs', () => navigator.clipboard.writeText([...issues, '', data.log || ''].join('\n')));
-  on('fold-bugs', () => { bugsOpen = !bugsOpen; lastGrid = ''; render(); });
-  on('clear-bugs', async () => {
+  on('copy-bugs', async () => {
+    if (bugAction.busy) return;
     const kind = view;
+    const report = [`${source} diagnostic report`, ...issues, '', data.log || ''].join('\n');
     try {
-      if (kind === 'bugs-irelay') await irelay.clearIrelayBugs(); else await irelay.clearIdeckBugs();
-    } catch (failure) {
-      bugs[kind] = { error: 'Could not clear: ' + String(failure.message || failure).replace(/^Error invoking remote method '\w+': (Error: )?/, '')
-        + (kind === 'bugs-ideck' ? ' (update iDeck to clear its log from here)' : '') };
-      lastGrid = '';
-      render();
-      return;
+      await navigator.clipboard.writeText(report);
+      if (view !== kind) return;
+      bugAction.notice = 'Diagnostic report copied to clipboard.';
+      bugAction.failed = false;
+    } catch {
+      if (view !== kind) return;
+      bugAction.notice = 'Could not copy the report. Check clipboard permissions and try again.';
+      bugAction.failed = true;
     }
-    loadBugs(kind);
+    render();
   });
+  on('clear-bugs', () => {
+    if (bugAction.busy) return;
+    bugAction.confirm = true;
+    bugAction.notice = '';
+    render();
+    $('cancel-clear-bugs')?.focus();
+  });
+  on('cancel-clear-bugs', () => {
+    bugAction.confirm = false;
+    bugAction.notice = '';
+    render();
+    $('clear-bugs')?.focus();
+  });
+  on('confirm-clear-bugs', async () => {
+    if (bugAction.busy) return;
+    const kind = view;
+    bugAction.busy = true;
+    bugAction.notice = '';
+    render();
+    try {
+      if (kind === 'bugs-irelay') await irelay.clearIrelayBugs();
+      else await irelay.clearIdeckBugs();
+      if (kind !== view) return;
+      bugAction.confirm = false;
+      bugAction.notice = `${source} diagnostic logs cleared.`;
+      bugAction.failed = false;
+      await loadBugs(kind);
+    } catch (failure) {
+      if (kind !== view) return;
+      const reason = String(failure.message || failure).replace(/^Error invoking remote method '\w+': (Error: )?/, '');
+      bugAction.notice = `Could not clear ${source} logs: ${reason}`;
+      bugAction.failed = true;
+    } finally {
+      bugAction.busy = false;
+      if (view === kind) render();
+    }
+  });
+  on('fold-bugs', () => { bugsOpen = !bugsOpen; lastGrid = ''; render(); });
   on('fold-log', () => { logOpen = !logOpen; lastGrid = ''; render(); });
 }
 
