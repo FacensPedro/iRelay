@@ -30,6 +30,6 @@ test('clear logs is prevented for active PC and iDeck jobs', () => {
   for (const handler of [first, second]) {
     assert.match(handler, /processor\.jobs\.values\(\)/);
     assert.match(handler, /state\.installs\.some/);
-    assert.match(handler, /Pause the active download and USB transfer/);
+    assert.match(handler, /Finish or pause the active download and USB transfer/);
   }
 });
