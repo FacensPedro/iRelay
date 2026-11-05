@@ -15,7 +15,7 @@ test('Bugs toolbar has accessible icon buttons for copying and clearing', () => 
   assert.match(renderer, /class="bug-action bug-action-clear" id="clear-bugs"/);
   assert.match(renderer, /aria-hidden="true" viewBox="0 0 24 24"/);
   assert.match(renderer, /title="Copy issues and diagnostic log to clipboard"/);
-  assert.match(renderer, /title="Clear diagnostic logs \(confirmation required\)"/);
+  assert.match(renderer, /Clear diagnostic logs/);
   assert.match(styles, /\.bug-action:focus-visible/);
   assert.match(styles, /\.bug-action-copy:hover:not\(:disabled\)/);
   assert.match(styles, /\.bug-action-clear:hover:not\(:disabled\)/);

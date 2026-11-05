@@ -94,10 +94,13 @@ function renderDevice() {
   $('device-dot').className = `device-dot ${cable.status === 'connected' ? 'on' : cable.status === 'waiting' ? 'warn' : ''}`;
   const info = cable.device;
   $('device-title').textContent = info ? info.name : 'No device';
-  const model = info ? [info.model, info.iosVersion && `iOS ${info.iosVersion}`].filter(Boolean).join(' · ') : '';
+  // The device's name appears only above. Show system version, storage and
+  // iDeck version in the subtitle, never duplicate model/name information.
   $('device-text').textContent = cable.status === 'connected'
-    ? `${model} · iDeck ${info.version} · ${size(info.freeBytes)} free`
-    : [model, cable.message].filter(Boolean).join(' — ');
+    ? [info.iosVersion && `iOS ${info.iosVersion}`,
+       Number.isFinite(info.freeBytes) && `${size(info.freeBytes)} free`,
+       info.version && `iDeck ${info.version}`].filter(Boolean).join(' · ')
+    : cable.message || 'Waiting for a device…';
   const select = $('device-select');
   const devices = state.devices || [];
   select.classList.toggle('hidden', devices.length < 2);
@@ -341,6 +344,8 @@ function renderBugs() {
   const source = view === 'bugs-irelay' ? 'iRelay' : 'iDeck';
   const status = issues.length ? 'Issues detected' : 'No issues detected';
   const available = !!(issues.length || data.log);
+  const transferActive = (state.jobs || []).some((job) => !job.finished) ||
+    (state.installs || []).some((item) => !['failed', 'paused', 'completed', 'installed'].includes(item.phase));
   const copyIcon = '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
   const trashIcon = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6m4-6v6"/></svg>';
   const busy = bugAction.busy;
@@ -363,8 +368,8 @@ function renderBugs() {
       <div class="bug-actions">
         <button type="button" class="bug-action bug-action-copy" id="copy-bugs" ${!available || busy ? 'disabled' : ''}
           title="Copy issues and diagnostic log to clipboard">${copyIcon}<span>Copy report</span></button>
-        <button type="button" class="bug-action bug-action-clear" id="clear-bugs" ${!available || busy ? 'disabled' : ''}
-          title="Clear diagnostic logs (confirmation required)">${trashIcon}<span>Clear logs</span></button>
+        <button type="button" class="bug-action bug-action-clear" id="clear-bugs" ${!available || busy || transferActive ? 'disabled' : ''}
+          title="${transferActive ? 'Pause or finish active downloads and transfers first' : 'Clear diagnostic logs (confirmation required)'}">${trashIcon}<span>Clear logs</span></button>
       </div>
     </div>
     ${confirmation}
