@@ -400,7 +400,8 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   ipcMain.handle('clearIrelayBugs', () => {
     // The log file is emptied; failed downloads iDeck still reports (it keeps
     // them until it restarts) are remembered as cleared, so they stay out.
-    try { fs.writeFileSync(path.join(app.getPath('userData'), 'irelay.log'), ''); } catch { /* none */ }
+    // Report failed deletion to the UI instead of silently displaying success.
+    fs.writeFileSync(path.join(app.getPath('userData'), 'irelay.log'), '');
     global.irelayLogOffset = 0;
     for (const item of state.installs) if (item.error) clearedErrors.add(`${item.title}: ${item.error}`);
   });
