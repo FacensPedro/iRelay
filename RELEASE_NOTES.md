@@ -1,6 +1,8 @@
 ## What's Changed
-- Fixed transient USB failures that incorrectly marked iDeck as disconnected during Steam transfers.
-- Added automatic recovery after Apple Mobile Device Service timeouts and iDeck restarts.
-- Prevented overlapping USB tunnel reconnection attempts and uncaught socket-error dialogs.
-- Retried interrupted Steam chunk writes instead of immediately falling back to downloading the remaining game on iDeck.
-- Reduced USB transfer memory pressure with smaller concurrent chunk budgets and fewer active device connections.
+- Shipped a fresh Electron 42 Windows executable with embedded Node.js 24, not just an application archive.
+- Warned users running an older executable to install the new Windows package so the Node.js runtime is actually updated.
+- Prevented transient USB socket errors from opening misleading fatal startup dialogs.
+- Reduced iDeck USB requests after connection failures and gradually restored concurrency after recovery.
+- Retried already-verified Steam chunks for longer with backoff, preventing a burst of simultaneous reconnection attempts.
+- Reduced USB health and transfer polling while Steam chunks are being written.
+- Added regression tests for USB recovery and packaged runtime verification.
