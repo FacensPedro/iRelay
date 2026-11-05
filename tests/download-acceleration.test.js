@@ -98,7 +98,7 @@ test('abandoned transfers stop instead of scheduling new chunks', async () => {
   value.one = () => { calls++; return new Promise((resolve) => pending.push(resolve)); };
   const job = value.start(request(80));
   await flush();
-  job.polled = Date.now() - 21000;
+  job.polled = Date.now() - 91000;
   pending.splice(0).forEach((resolve) => resolve());
   await flush();
   assert.equal(calls, 24);
