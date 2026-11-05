@@ -117,7 +117,7 @@ async function connect(deviceId, port) {
   const number = /<key>Number<\/key>\s*<integer>(\d+)<\/integer>/.exec(xml);
   if (!number || number[1] !== '0') {
     socket.destroy();
-    const error = new Error(number && number[1] === '3' ? 'iDeck is not listening (open iDeck and turn on iRelay)' : 'usbmux refused the connection');
+    const error = new Error(number && number[1] === '3' ? 'iDeck USB service unavailable (keep iDeck open in the foreground)' : 'usbmux refused the connection');
     error.code = 'EREFUSED';
     throw error;
   }
