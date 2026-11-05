@@ -303,8 +303,8 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     }
     setTimeout(pollInstalls, 500);
   });
-  // iDeck owns each install. Pause preserves partial files; Stop discards
-  // incomplete data where supported, without uninstalling completed games.
+  // iDeck owns each install. Stop halts PC-side writes before iDeck removes
+  // only the incomplete files owned by this install; existing games remain safe.
   ipcMain.handle('controlDownload', async (_, control) => {
     if (!deviceId) throw new Error('Connect a device with iDeck first.');
     if (Number(state.cable.device?.protocol || 0) < 3) {
@@ -319,10 +319,18 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     if ((store === 'epic' && !id) || (store !== 'epic' && !Number.isSafeInteger(id))) {
       throw new Error('Invalid game ID.');
     }
+    if (action === 'stop' && store === 'steam' && processor) {
+      // Prevent a late PC-side /write from re-creating files after iDeck has
+      // deleted the incomplete install. Pause the device first, drain writes,
+      // and only then ask iDeck to discard its owned staged files.
+      await device.controlDownload(deviceId, { store, id, action: 'pause' });
+      await processor.cancelApp(id);
+    }
     await device.controlDownload(deviceId, { store, id, action });
     if (store === 'steam' && action === 'stop') delete state.dlcQueue[id];
     log(`download ${action}: ${store} ${id}`);
     await pollInstalls();
+    if (action === 'stop') await refreshLibrary();
     return { ok: true };
   });
   // Uninstall removes the game (or one DLC) from iDeck's drive.
