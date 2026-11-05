@@ -12,10 +12,19 @@ const { Worker } = require('worker_threads');
 const ServerSelector = require('./servers');
 
 const NORMAL_IN_FLIGHT = 24;
-// Acceleration has no byte-per-second limiter. Limit simultaneous buffers
-// for reliability, not bandwidth; adapt parallel transfers to the PC.
-const ACCELERATED_MIN_IN_FLIGHT = 64;
-const ACCELERATED_MAX_IN_FLIGHT = 192;
+// Use limited CPU workers and an in-flight byte budget instead of hundreds of
+// concurrent decompression buffers. No download bandwidth throttle is applied.
+const ACCELERATED_MIN_IN_FLIGHT = 32;
+const ACCELERATED_MAX_IN_FLIGHT = 64;
+const IN_FLIGHT_BYTE_BUDGET = 96 * 1024 * 1024;
+const MAX_ENCRYPTED_CHUNK = 32 * 1024 * 1024;
+function estimatedMemory(chunk) {
+  const size = Number(chunk.size);
+  const compressed = Number(chunk.compressed);
+  const decoded = Number.isFinite(size) && size > 0 ? size : 1024 * 1024;
+  const encoded = Number.isFinite(compressed) && compressed > 0 ? compressed : decoded;
+  return Math.min(IN_FLIGHT_BYTE_BUDGET, Math.max(64 * 1024, decoded * 2 + encoded * 2));
+}
 
 // The worker's code: read here (it may live inside an asar archive, which
 // worker threads cannot load from) and evaluated in each worker.
@@ -80,7 +89,8 @@ class Pool {
 }
 
 class Processor {
-  constructor({ write, onChange, log, accelerated = false }) {
+  constructor({ write, onChange, log, accelerated = false, fetcher = globalThis.fetch }) {
+    this.fetcher = fetcher;
     this.write = write;   // (root, path, offset, size, sha, data) -> Promise
     this.onChange = onChange;
     this.log = log;
@@ -93,12 +103,12 @@ class Processor {
   get concurrency() {
     if (!this.accelerated) return NORMAL_IN_FLIGHT;
     const cpus = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
-    return Math.min(ACCELERATED_MAX_IN_FLIGHT, Math.max(ACCELERATED_MIN_IN_FLIGHT, cpus * 12));
+    return Math.min(ACCELERATED_MAX_IN_FLIGHT, Math.max(ACCELERATED_MIN_IN_FLIGHT, cpus * 4));
   }
 
   get workerCount() {
     const cpus = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
-    return Math.max(2, Math.min(this.accelerated ? 12 : 8, cpus - 1));
+    return Math.max(2, Math.min(this.accelerated ? 4 : 2, cpus - 1));
   }
 
   setAccelerated(enabled) {
@@ -133,6 +143,7 @@ class Processor {
   async run(job, queue) {
     let next = 0;
     let active = 0;
+    let activeBytes = 0;
     await new Promise((resolve) => {
       const pump = () => {
         if (Date.now() - job.polled > ABANDON_MS && !job.cancelled) {
@@ -140,8 +151,14 @@ class Processor {
           this.log(`processing ${job.name} stopped: iDeck no longer follows it`);
         }
         while (next < queue.length && !job.cancelled && active < this.concurrency) {
-          const item = queue[next++];
+          const item = queue[next];
+          const bytes = estimatedMemory(item.chunk);
+          // A single large chunk may exceed the budget, but never start a
+          // second one until its memory has been released.
+          if (active > 0 && activeBytes + bytes > IN_FLIGHT_BYTE_BUDGET) break;
+          next += 1;
           active += 1;
+          activeBytes += bytes;
           Promise.resolve().then(() => this.one(item)).then(() => {
             job.chunksDone += 1;
             job.bytesDone += item.chunk.size;
@@ -151,6 +168,7 @@ class Processor {
             if (job.failed.length <= 5) this.log(`chunk ${item.chunk.sha.slice(0, 8)} of ${job.name}: ${error.message}`);
           }).finally(() => {
             active -= 1;
+            activeBytes -= bytes;
             pump();
           });
         }
@@ -185,23 +203,55 @@ class Processor {
   }
 
   async download(depot, sha) {
-    const hosts = await this.servers.rank('steam', depot.hosts || []);
-    if (!hosts.length) throw new Error('no content servers');
-    const start = 0; // Always try the lowest-latency healthy CDN first.
+    if (typeof sha !== 'string' || !/^[0-9a-f]{40}$/i.test(sha)) {
+      throw new Error('Invalid Steam chunk digest');
+    }
+    if (!/^[0-9]+$/.test(String(depot.depotId ?? ''))) {
+      throw new Error('Invalid Steam depot ID');
+    }
+    const approved = (depot.hosts || []).filter((url) => ServerSelector.origin('steam', url) !== null);
+    if (!approved.length) throw new Error('No verified HTTPS Steam content servers');
+    const hosts = await this.servers.rank('steam', approved);
     let last;
     for (let attempt = 0; attempt < Math.max(3, hosts.length); attempt += 1) {
-      const original = hosts[(start + attempt) % hosts.length];
-      const host = original.replace(/\/+$/, '');
-      const auth = (depot.auth || {})[original] ?? (depot.auth || {})[host] ?? '';
+      const original = hosts[attempt % hosts.length];
+      const origin = ServerSelector.origin('steam', original);
+      const auth = (depot.auth || {})[original] ?? (depot.auth || {})[origin] ?? '';
+      if (typeof auth !== 'string' || auth.length > 4096 || (auth && (!auth.startsWith('?') || /[\r\n]/.test(auth)))) {
+        throw new Error('Invalid Steam content server authorization');
+      }
       try {
-        const response = await fetch(`${host}/depot/${depot.depotId}/chunk/${sha}${auth}`, {
-          headers: { 'User-Agent': 'Valve/Steam HTTP Client 1.0' }, signal: AbortSignal.timeout(60000),
+        const response = await this.fetcher(`${origin}/depot/${depot.depotId}/chunk/${sha}${auth}`, {
+          headers: { 'User-Agent': 'Valve/Steam HTTP Client 1.0' },
+          redirect: 'error', // Never redirect encrypted chunks to an untrusted host.
+          signal: AbortSignal.timeout(60000),
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return Buffer.from(await response.arrayBuffer());
+        const declared = Number(response.headers?.get?.('content-length'));
+        if (Number.isFinite(declared) && declared > MAX_ENCRYPTED_CHUNK) {
+          await response.body?.cancel?.();
+          throw new Error('Steam encrypted chunk exceeds the size limit');
+        }
+        if (!response.body) {
+          const data = Buffer.from(await response.arrayBuffer());
+          if (data.length > MAX_ENCRYPTED_CHUNK) throw new Error('Steam encrypted chunk exceeds the size limit');
+          return data;
+        }
+        // Streaming bounds the allocation even when the CDN sends no
+        // Content-Length header. Only one final concat is needed.
+        const parts = [];
+        let received = 0;
+        for await (const part of response.body) {
+          received += part.length;
+          if (received > MAX_ENCRYPTED_CHUNK) throw new Error('Steam encrypted chunk exceeds the size limit');
+          parts.push(Buffer.from(part));
+        }
+        return Buffer.concat(parts, received);
       } catch (error) {
         last = error;
-        await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+        if (attempt + 1 < Math.max(3, hosts.length)) {
+          await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+        }
       }
     }
     throw last;

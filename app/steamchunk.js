@@ -28,8 +28,22 @@ function lzma(props, body, size, decoders) {
 function decode(raw, keyHex, size, crc, sha, decoders) {
   const crypto = require('crypto');
   const zlib = require('zlib');
+  // The official Steam protocol fixes AES-256-CBC and SHA-1. Verify key
+  // lengths and digests strictly; do not substitute an incompatible cipher.
+  if (typeof keyHex !== 'string' || !/^[0-9a-f]{64}$/i.test(keyHex)) {
+    throw new Error('Invalid AES-256 depot key');
+  }
+  if (typeof sha !== 'string' || !/^[0-9a-f]{40}$/i.test(sha)) {
+    throw new Error('Invalid Steam chunk digest');
+  }
+  if (!Number.isSafeInteger(size) || size < 0 || size > 64 * 1024 * 1024) {
+    throw new Error('Invalid Steam uncompressed chunk size');
+  }
   const key = Buffer.from(keyHex, 'hex');
-  if (raw.length < 32 || (raw.length - 16) % 16 !== 0) throw new Error('not an AES payload');
+  if (!Buffer.isBuffer(raw) || raw.length < 32 ||
+      raw.length > 64 * 1024 * 1024 || (raw.length - 16) % 16 !== 0) {
+    throw new Error('not a bounded AES payload');
+  }
   const ecb = crypto.createDecipheriv('aes-256-ecb', key, null);
   ecb.setAutoPadding(false);
   const iv = Buffer.concat([ecb.update(raw.subarray(0, 16)), ecb.final()]);
@@ -60,7 +74,9 @@ function decode(raw, keyHex, size, crc, sha, decoders) {
   }
   if (out.length !== size) throw new Error(`size ${out.length} != ${size}`);
   if (crc && adler32(out) !== crc) throw new Error('checksum mismatch');
-  if (crypto.createHash('sha1').update(out).digest('hex') !== sha) throw new Error('SHA-1 mismatch');
+  const actual = crypto.createHash('sha1').update(out).digest();
+  const expected = Buffer.from(sha, 'hex');
+  if (!crypto.timingSafeEqual(actual, expected)) throw new Error('SHA-1 mismatch');
   return out;
 }
 
