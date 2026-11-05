@@ -1,4 +1,4 @@
 # iRelay 3.5.2
 
-## O que mudou
-- Adicionado espaçamento entre **Accelerate downloads** e **Unused cache** nas configurações.
+## What's Changed
+- Added spacing between **Accelerate downloads** and **Unused cache** in Settings.
