@@ -13,6 +13,8 @@ const usbmux = require('../app/usbmux');
 async function withMockDevice(run) {
   const original = usbmux.connect;
   let connections = 0;
+  let activeConnections = 0;
+  let peakConnections = 0;
   let transferred = 0;
   let uploads = 0;
   const server = http.createServer((req, res) => {
@@ -33,7 +35,12 @@ async function withMockDevice(run) {
     });
   });
   server.keepAliveTimeout = 10000;
-  server.on('connection', () => { connections += 1; });
+  server.on('connection', (socket) => {
+    connections += 1;
+    activeConnections += 1;
+    peakConnections = Math.max(peakConnections, activeConnections);
+    socket.once('close', () => { activeConnections -= 1; });
+  });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
@@ -47,7 +54,7 @@ async function withMockDevice(run) {
     });
   };
   try {
-    await run(() => ({ connections, transferred, uploads }));
+    await run(() => ({ connections, peakConnections, transferred, uploads }));
   } finally {
     device.closeOtherConnections(null);
     usbmux.connect = original;
@@ -70,7 +77,7 @@ test('Steam chunk writes reuse USB connections with at most eight live sockets',
         i * 1024, 65536, 'a'.repeat(40), Buffer.alloc(1024, i))));
     assert.equal(values.length, 40);
     assert.ok(values.every((v) => v.received === 1024));
-    assert.ok(stats().connections <= 8, 'pool must cap simultaneous USB sockets');
+    assert.ok(stats().peakConnections <= 8, 'pool must cap simultaneously active USB sockets; peak=' + stats().peakConnections);
   });
 });
 
