@@ -18,7 +18,8 @@ test('release notes use the current version and an English-only changelog', () =
 });
 
 test('release workflow uses reviewed English notes for new and existing releases', () => {
-  assert.match(workflow, /gh release create "v\$VERSION"[^\n]*--notes-file RELEASE_NOTES\.md/);
+  assert.match(workflow, /gh release create "v\$VERSION"/);
+  assert.match(workflow, /--title "iRelay \$VERSION" --notes-file RELEASE_NOTES\.md/);
   assert.match(workflow, /gh release edit "v\$VERSION" --title "iRelay \$VERSION" --notes-file RELEASE_NOTES\.md/);
   assert.doesNotMatch(workflow, /--generate-notes/);
 });
