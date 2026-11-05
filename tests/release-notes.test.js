@@ -10,7 +10,7 @@ const workflow = fs.readFileSync(path.join(root, '.github/workflows/build.yml'),
 
 test('release notes use the current version and an English-only changelog', () => {
   assert.ok(notes.startsWith("## What's Changed\n"));
-  assert.doesNotMatch(notes, /^#\\s*iRelay\\b/im);
+  assert.doesNotMatch(notes, /^#\s*iRelay\b/im);
   assert.match(notes, /^- [A-Z][^\n]+\.$/m);
   assert.doesNotMatch(notes, /[^\x09\x0A\x0D\x20-\x7E]/);
   assert.doesNotMatch(notes, /\b(?:O que mudou|Adicionado|Alterações|Configurações|Corrigido|Atualização)\b/i);
