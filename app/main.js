@@ -176,6 +176,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   let lastHealthyCable = null;
   let lastHealthyAt = 0;
   const CABLE_RECOVERY_GRACE_MS = 45000;
+  let lastDeviceProbeAt = 0;
 
   let cablePollInFlight = false;
   async function pollCable() {
@@ -195,7 +196,16 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
           try { info = await lockdown.deviceInfo(entry.id); known.set(entry.id, info); } catch { info = null; }
         }
         let ideck = null;
-        try { ideck = await device.info(entry.id); } catch { ideck = null; }
+        const sameActiveDevice = lastHealthyCable?.id === entry.id &&
+          state.cable.status === 'connected';
+        // USB discovery is fast; avoid an extra /info request every two
+        // seconds while large game chunks use the same USB connection.
+        if (sameActiveDevice && Date.now() - lastDeviceProbeAt < 5000) {
+          ideck = state.cable.device;
+        } else {
+          try { ideck = await device.info(entry.id); } catch { ideck = null; }
+          lastDeviceProbeAt = Date.now();
+        }
         const trusted = !!ideck || await usbmux.hasPairRecord(entry.serial);
         devices.push({ id: entry.id, udid: entry.serial, trusted, ...(info || { name: 'Device', model: 'Device' }), ideck });
       }
