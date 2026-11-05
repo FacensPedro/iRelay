@@ -34,6 +34,10 @@ function frame(entries, tag) {
 function exchange(entries, tag, timeout = 4000) {
   return new Promise((resolve, reject) => {
     const socket = net.connect(MUX_PORT, '127.0.0.1');
+    // A socket can fail between the usbmux plist handshake completing and
+    // its caller taking ownership. Keep an error handler through that gap;
+    // without it an ordinary unplug raised an uncaughtException/FATAL dialog.
+    socket.on('error', () => {});
     let buffer = Buffer.alloc(0);
     let settled = false;
     const cleanup = () => {
