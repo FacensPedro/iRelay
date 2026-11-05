@@ -47,6 +47,7 @@ jobs:
           $log = Join-Path $env:APPDATA 'iRelay\irelay.log'
           if (Test-Path $log) { Get-Content $log } else { Write-Host 'no log written' }
           if ($timedOut -or -not (Select-String -Path $log -Pattern 'smoke test passed' -Quiet)) { throw 'iRelay did not open' }
+          if (-not (Select-String -Path $log -Pattern 'runtime check passed electron=42\.[0-9]+\.[0-9]+ node=24\.' -Quiet)) { throw 'Installed iRelay.exe does not bundle Electron 42 and Node.js 24' }
           (Get-MpPreference).ExclusionPath | Where-Object { $_ -like '*iRelay*' }
       - name: Package
         shell: pwsh

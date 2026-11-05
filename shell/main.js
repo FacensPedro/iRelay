@@ -20,10 +20,24 @@ function log(line) {
   } catch { /* nowhere to write */ }
 }
 global.irelayLog = log;
+// USB sockets may close while iPadOS suspends the listener or usbmux
+// reconnects. These errors are recoverable by the transfer scheduler; never
+// show a blocking "could not start" dialog for one such socket.
+function transientUSB(error) {
+  const code = String(error?.code || '');
+  if (['ECONNRESET', 'EPIPE', 'ETIMEDOUT', 'ECONNREFUSED', 'ENOTCONN', 'EREFUSED',
+       'ERR_STREAM_PREMATURE_CLOSE'].includes(code)) return true;
+  return /socket hang up|iDeck is not listening|iDeck USB service unavailable|usbmux timeout|usbmux refused|Apple Mobile Device connection closed|USB device disconnected|cable connection closed/i
+    .test(String(error?.message || error));
+}
 function fatal(error) {
-  const text = (error && error.stack) || String(error);
-  log(`FATAL ${text}`);
-  try { dialog.showErrorBox('iRelay could not start', `${text}\n\nLog: ${logFile}`); } catch { /* no UI */ }
+  const details = (error && error.stack) || String(error);
+  if (transientUSB(error)) {
+    log(`USB transport warning (recoverable): ${details}`);
+    return;
+  }
+  log(`FATAL ${details}`);
+  try { dialog.showErrorBox('iRelay could not start', `${details}\n\nLog: ${logFile}`); } catch { /* no UI */ }
 }
 process.on('uncaughtException', fatal);
 process.on('unhandledRejection', (reason) => log(`unhandled rejection ${(reason && reason.stack) || reason}`));

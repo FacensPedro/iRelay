@@ -51,6 +51,7 @@ function workerSource() {
 // Give iDeck time to recover from temporary USB interruptions without
 // discarding all the verified PC chunks. iDeck also retries job polling.
 const ABANDON_MS = 90000;
+const USB_WRITE_RETRY_WINDOW_MS = 90000;
 
 class Pool {
   constructor(size) {
@@ -198,21 +199,32 @@ class Processor {
     const raw = await this.download(depot, chunk.sha);
     if (job.cancelled) throw new Error('Transfer stopped');
     const data = await this.pool.decode({ raw, key: depot.key, size: chunk.size, crc: chunk.crc, sha: chunk.sha });
+    // Keep the already-verified chunk in memory while the iPad's USB service
+    // restarts. Limit the retry window and back off to prevent connect storms.
+    const deadline = Date.now() + USB_WRITE_RETRY_WINDOW_MS;
     for (let attempt = 1; ; attempt += 1) {
       if (job.cancelled) throw new Error('Transfer stopped');
       try {
         await this.write(depot.root, file.path, chunk.offset, file.size, chunk.sha, data);
+        if (job.usbFailureLogged && !job.usbRecoveryLogged) {
+          job.usbRecoveryLogged = true;
+          this.log(`USB transfer resumed for ${job.name}`);
+        }
         return;
       } catch (error) {
         if (job.cancelled) throw new Error('Transfer stopped');
-        // A transient USB failure must not discard the decrypted chunk and
-        // force iDeck to download the entire remaining game by itself.
         // Integrity, invalid path and storage errors remain non-retryable.
+        // A failed response can happen after a valid write: iDeck checks the
+        // SHA-1 again, making writing the same chunk at the same offset safe.
         const message = String(error?.message || error);
-        if (/SHA-1 mismatch|invalid transfer|invalid path|HTTP 400|HTTP 403|HTTP 409|HTTP 507/i.test(message) ||
-            attempt >= 12) throw error;
-        if (attempt === 1) this.log(`USB interrupted while transferring ${job.name}; retrying the same chunk`);
-        await new Promise((resolve) => setTimeout(resolve, Math.min(3000, attempt * 500)));
+        if (/SHA-1 mismatch|invalid transfer|invalid path|HTTP 400|HTTP 403|HTTP 409|HTTP 422|HTTP 507/i.test(message) ||
+            Date.now() >= deadline) throw error;
+        if (!job.usbFailureLogged) {
+          job.usbFailureLogged = true;
+          this.log(`USB interrupted while transferring ${job.name}; waiting for reconnection`);
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.min(4000, 500 * Math.min(attempt, 8))));
       }
     }
   }
