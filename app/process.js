@@ -217,7 +217,7 @@ class Processor {
       const original = hosts[attempt % hosts.length];
       const origin = ServerSelector.origin('steam', original);
       const auth = (depot.auth || {})[original] ?? (depot.auth || {})[origin] ?? '';
-      if (typeof auth !== 'string' || auth.length > 4096 || (auth && !/^\\?[^\\r\\n]*$/.test(auth))) {
+      if (typeof auth !== 'string' || auth.length > 4096 || (auth && (!auth.startsWith('?') || /[\r\n]/.test(auth)))) {
         throw new Error('Invalid Steam content server authorization');
       }
       try {
