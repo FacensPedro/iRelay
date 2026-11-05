@@ -177,7 +177,13 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   let lastHealthyAt = 0;
   const CABLE_RECOVERY_GRACE_MS = 45000;
 
+  let cablePollInFlight = false;
   async function pollCable() {
+    // Never overlap Apple Mobile Device Service and usbmux probes.
+    // Fast, non-overlapping retries detect plug/unplug events without
+    // causing connection storms during active transfers.
+    if (cablePollInFlight) return;
+    cablePollInFlight = true;
     try {
       const found = await usbmux.listDevices();
       const devices = [];
@@ -254,6 +260,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     // Reclaim keep-alive USB transports when switching or unplugging devices.
     device.closeOtherConnections(deviceId);
     push();
+    cablePollInFlight = false;
   }
 
   let loadingLibrary = false;
@@ -398,6 +405,12 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   });
   // Clear: iRelay's log (this run's lines start again) and iDeck's logs on the device.
   ipcMain.handle('clearIrelayBugs', () => {
+    // Keep evidence while a download or iDeck USB transfer is active.
+    const pcBusy = processor && [...processor.jobs.values()].some((job) => !job.finished);
+    const deviceBusy = state.installs.some((item) =>
+      item.phase !== 'failed' && item.phase !== 'paused' && item.phase !== 'completed' && item.phase !== 'installed');
+    if (pcBusy || deviceBusy) throw new Error('Finish or pause the active download and USB transfer before clearing logs.');
+
     // The log file is emptied; failed downloads iDeck still reports (it keeps
     // them until it restarts) are remembered as cleared, so they stay out.
     // Report failed deletion to the UI instead of silently displaying success.
@@ -406,6 +419,11 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     for (const item of state.installs) if (item.error) clearedErrors.add(`${item.title}: ${item.error}`);
   });
   ipcMain.handle('clearIdeckBugs', async () => {
+    // Keep evidence while a download or iDeck USB transfer is active.
+    const pcBusy = processor && [...processor.jobs.values()].some((job) => !job.finished);
+    const deviceBusy = state.installs.some((item) =>
+      item.phase !== 'failed' && item.phase !== 'paused' && item.phase !== 'completed' && item.phase !== 'installed');
+    if (pcBusy || deviceBusy) throw new Error('Finish or pause the active download and USB transfer before clearing logs.');
     if (!deviceId) throw new Error('Connect a device with iDeck first.');
     await device.clearLogs(deviceId);
   });
@@ -502,7 +520,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     try { fs.unlinkSync(path.join(app.getPath('userData'), 'github-token.bin')); } catch { /* none */ }
     state.ready = true;
     state.boot = '';
-    every(5000, pollCable);
+    every(2000, pollCable);
     // The device's library again every 30 s, so games copied earlier or
     // installed in iDeck itself show up without a reconnect.
     every(30000, () => (deviceId &&
