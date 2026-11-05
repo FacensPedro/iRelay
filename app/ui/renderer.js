@@ -273,7 +273,7 @@ function renderSettings() {
 function renderAbout() {
   const update = state.update || {};
   setContent(`<div class="about">
-    <div class="panel"><h3>iRelay ${esc(state.version)}</h3><p>${esc(state.cable.message)}</p>
+    <div class="panel"><h3>iRelay ${esc(state.version)}</h3>
       <div class="bugs-bar" style="margin:12px 0 0"><button class="primary" id="about-update" ${update.busy || (state.cache && state.cache.busy) ? 'disabled' : ''}>Update iRelay</button>
       <button class="secondary" id="open-data">iRelay folder</button>
       <button class="secondary" id="open-program">Program folder</button>
