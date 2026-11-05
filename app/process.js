@@ -101,6 +101,10 @@ class Processor {
     this.pool = null;
     this.accelerated = accelerated === true;
     this.servers = new ServerSelector();
+    // Shared by concurrent Steam chunks: one overloaded CDN host should not
+    // receive another burst of requests until its cooldown has expired.
+    this.cdnCooldownUntil = new Map();
+    this.cdnOutageLogged = false;
   }
 
   get concurrency() {
@@ -238,10 +242,20 @@ class Processor {
     }
     const approved = (depot.hosts || []).filter((url) => ServerSelector.origin('steam', url) !== null);
     if (!approved.length) throw new Error('No verified HTTPS Steam content servers');
-    const hosts = await this.servers.rank('steam', approved);
+    const hosts = [...new Set(await this.servers.rank('steam', approved))];
+    const maxAttempts = Math.min(24, Math.max(6, hosts.length * 3));
     let last;
-    for (let attempt = 0; attempt < Math.max(3, hosts.length); attempt += 1) {
-      const original = hosts[attempt % hosts.length];
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const now = Date.now();
+      const ready = hosts.filter((host) => (this.cdnCooldownUntil.get(host) || 0) <= now);
+      if (!ready.length) {
+        const until = Math.min(...hosts.map((host) => this.cdnCooldownUntil.get(host) || now));
+        // All servers declined requests temporarily. Do not flood them with
+        // simultaneous failed retries; honor the shortest capped cooldown.
+        await new Promise((resolve) => setTimeout(resolve, Math.min(10000, Math.max(100, until - now))));
+        continue;
+      }
+      const original = ready[attempt % ready.length];
       const origin = ServerSelector.origin('steam', original);
       const auth = (depot.auth || {})[original] ?? (depot.auth || {})[origin] ?? '';
       if (typeof auth !== 'string' || auth.length > 4096 || (auth && (!auth.startsWith('?') || /[\r\n]/.test(auth)))) {
@@ -250,10 +264,24 @@ class Processor {
       try {
         const response = await this.fetcher(`${origin}/depot/${depot.depotId}/chunk/${sha}${auth}`, {
           headers: { 'User-Agent': 'Valve/Steam HTTP Client 1.0' },
-          redirect: 'error', // Never redirect encrypted chunks to an untrusted host.
+          redirect: 'error', // Do not redirect authenticated chunk URLs.
           signal: AbortSignal.timeout(60000),
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) {
+          await response.body?.cancel?.();
+          if ([429, 500, 502, 503, 504].includes(response.status)) {
+            const retryHeader = response.headers?.get?.('retry-after');
+            const seconds = retryHeader && /^\d+$/.test(retryHeader.trim()) ? Number(retryHeader.trim()) : 0;
+            const delay = Math.min(10000, Math.max(800 * Math.min(attempt + 1, 5), seconds * 1000));
+            this.cdnCooldownUntil.set(original, Date.now() + delay);
+            if (response.status === 503 && !this.cdnOutageLogged) {
+              this.cdnOutageLogged = true;
+              this.log('Steam content server returned HTTP 503; rotating CDN hosts and retrying');
+            }
+          }
+          throw new Error(`HTTP ${response.status}`);
+        }
+        this.cdnCooldownUntil.delete(original);
         const declared = Number(response.headers?.get?.('content-length'));
         if (Number.isFinite(declared) && declared > MAX_ENCRYPTED_CHUNK) {
           await response.body?.cancel?.();
@@ -264,8 +292,6 @@ class Processor {
           if (data.length > MAX_ENCRYPTED_CHUNK) throw new Error('Steam encrypted chunk exceeds the size limit');
           return data;
         }
-        // Streaming bounds the allocation even when the CDN sends no
-        // Content-Length header. Only one final concat is needed.
         const parts = [];
         let received = 0;
         for await (const part of response.body) {
@@ -276,12 +302,12 @@ class Processor {
         return Buffer.concat(parts, received);
       } catch (error) {
         last = error;
-        if (attempt + 1 < Math.max(3, hosts.length)) {
-          await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+        if (attempt + 1 < maxAttempts && (this.cdnCooldownUntil.get(original) || 0) <= Date.now()) {
+          await new Promise((resolve) => setTimeout(resolve, Math.min(2000, 250 * (attempt + 1))));
         }
       }
     }
-    throw last;
+    throw last || new Error('Steam CDN hosts remained unavailable after retrying');
   }
 
   rankServers(store, urls) {
