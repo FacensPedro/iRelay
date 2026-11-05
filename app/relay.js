@@ -1,21 +1,36 @@
 'use strict';
-// The HTTP server iDeck reaches over the cable. iOS gives apps no USB
-// networking, so iRelay opens the connections: it keeps a few open to iDeck's
-// port 27091 (iDeck hands each to one of its requests) and joins each to this
-// server on 127.0.0.1:27090.
+// The HTTP server iDeck reaches over the trusted USB cable. The Windows
+// host no longer exposes its download control endpoints on loopback TCP:
+// incoming usbmux sockets are handed directly to Node's HTTP parser.
+// iRelay opens connections to iDeck's USB port 27091.
 //
 //   GET    /ping            name and version
 //   POST   /process         a Steam download for this PC to process (process.js)
 //   GET    /process/<id>    its progress; once finished, the chunks left to iDeck
 //   DELETE /process/<id>    cancel
 const http = require('http');
-const net = require('net');
 const os = require('os');
 const usbmux = require('./usbmux');
 
-const LOCAL_PORT = 27090;
 const DEVICE_PORT = 27091;
 const IDLE = 6;
+const MAX_RANK_REQUEST_BYTES = 16 * 1024;
+const MAX_MANIFEST_BYTES = 64 * 1024 * 1024;
+
+async function readBody(req, limit) {
+  const parts = [];
+  let received = 0;
+  for await (const part of req) {
+    received += part.length;
+    if (received > limit) {
+      const error = new Error('Request body exceeds the permitted size');
+      error.status = 413;
+      throw error;
+    }
+    parts.push(part);
+  }
+  return Buffer.concat(parts, received).toString('utf8');
+}
 
 class Relay {
   constructor(processor, log) {
@@ -26,12 +41,15 @@ class Relay {
 
   start() {
     this.server = http.createServer((req, res) => this.handle(req, res).catch((error) => {
-      if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
+      if (!res.headersSent) res.writeHead(error.status || 500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: error.message }));
     }));
-    this.server.keepAliveTimeout = 60000;
+    this.server.headersTimeout = 15000;
+    this.server.requestTimeout = 120000;
+    this.server.keepAliveTimeout = 15000;
     this.server.on('error', (error) => this.log(`relay server: ${error.message}`));
-    this.server.listen(LOCAL_PORT, '127.0.0.1');
+    // Intentionally never listen() on a TCP port: only handed-off USB sockets
+    // can reach /process, /servers/rank and the transfer control endpoints.
   }
 
   async handle(req, res) {
@@ -44,17 +62,7 @@ class Relay {
       return json(200, { name: 'iRelay', version: 3, machine: os.hostname() });
     }
     if (req.method === 'POST' && url.pathname === '/servers/rank') {
-      const chunks = [];
-      let received = 0;
-      const body = await new Promise((resolve, reject) => {
-        req.on('data', (chunk) => {
-          received += chunk.length;
-          if (received > 16384) { reject(new Error('CDN selection request is too large')); req.destroy(); return; }
-          chunks.push(chunk);
-        });
-        req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-        req.on('error', reject);
-      });
+      const body = await readBody(req, MAX_RANK_REQUEST_BYTES);
       let payload;
       try { payload = JSON.parse(body); } catch { return json(400, { error: 'Invalid JSON' }); }
       if (!payload || !['steam', 'gog', 'epic'].includes(payload.store) ||
@@ -66,14 +74,14 @@ class Relay {
       return json(200, { urls: ordered });
     }
     if (req.method === 'POST' && url.pathname === '/process') {
-      const body = await new Promise((resolve, reject) => {
-        const parts = [];
-        let size = 0;
-        req.on('data', (part) => { size += part.length; if (size > 512 * 1024 * 1024) req.destroy(); parts.push(part); });
-        req.on('end', () => resolve(Buffer.concat(parts).toString('utf8')));
-        req.on('error', reject);
-      });
-      const job = this.processor.start(JSON.parse(body));
+      const body = await readBody(req, MAX_MANIFEST_BYTES);
+      let manifest;
+      try { manifest = JSON.parse(body); } catch { return json(400, { error: 'Invalid Steam manifest JSON' }); }
+      if (!manifest || !Array.isArray(manifest.depots) || manifest.depots.length > 4096 ||
+          !/^[0-9]+$/.test(String(manifest.appId ?? ''))) {
+        return json(400, { error: 'Invalid Steam manifest' });
+      }
+      const job = this.processor.start(manifest);
       return json(200, { id: job.id, total: job.total });
     }
     const match = /^\/process\/([\w-]+)$/.exec(url.pathname);
@@ -115,15 +123,10 @@ class Relay {
     socket.once('data', (first) => {
       release();
       socket.pause();
-      const local = net.connect(LOCAL_PORT, '127.0.0.1', () => {
-        local.write(first);
-        socket.pipe(local);
-        local.pipe(socket);
-        socket.resume();
-      });
-      local.on('error', () => socket.destroy());
-      socket.on('close', () => local.destroy());
-      local.on('close', () => socket.destroy());
+      if (!this.server) { socket.destroy(); return; }
+      socket.unshift(first);
+      this.server.emit('connection', socket);
+      socket.resume();
     });
     socket.on('error', () => {});
     socket.on('close', release);
