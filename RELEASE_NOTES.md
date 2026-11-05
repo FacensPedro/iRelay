@@ -1,6 +1,5 @@
 ## What's Changed
-- Redesigned Copy report and Clear logs controls in both iRelay and iDeck diagnostics tabs.
-- Added distinct action styles, consistent icons, keyboard focus states, and accessible status feedback.
-- Added confirmation before clearing diagnostic logs to prevent accidental deletion.
-- Improved clipboard success and failure messages and reporting of log-clearing errors.
-- Preserved existing game files, downloads, settings, and other application data when clearing diagnostic logs.
+- Reduced USB device detection latency while avoiding overlapping scans and unnecessary device status requests during transfers.
+- Removed repeated connected-device information; the lower status area displays system version, available storage and connected iDeck version.
+- Prevented clearing iRelay or iDeck diagnostic logs while game downloads or USB transfers are active.
+- Preserved paused downloads, installed games and diagnostic evidence.
