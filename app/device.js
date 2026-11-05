@@ -11,6 +11,34 @@ const http = require('http');
 const MAX_DEVICE_SOCKETS = 8;
 const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 const agents = new Map();
+const gates = new Map();
+
+// Agent sockets are opened asynchronously by usbmux. Node's socket counter
+// cannot include a socket until the connect callback runs, so use an explicit
+// request gate to cap concurrent USB connections even during their handshakes.
+function acquire(deviceId) {
+  let gate = gates.get(deviceId);
+  if (!gate) {
+    gate = { active: 0, pending: [] };
+    gates.set(deviceId, gate);
+  }
+  return new Promise((resolve, reject) => {
+    const release = () => {
+      gate.active -= 1;
+      if (gate.pending.length) {
+        const waiting = gate.pending.shift();
+        gate.active += 1;
+        waiting.resolve(release);
+      }
+    };
+    if (gate.active < MAX_DEVICE_SOCKETS) {
+      gate.active += 1;
+      resolve(release);
+    } else {
+      gate.pending.push({ resolve, reject });
+    }
+  });
+}
 
 // Reuse a bounded set of trusted usbmux sockets. iDeck's service already
 // supports HTTP/1.1 keep-alive, so there is no need to pair/connect the USB
@@ -37,6 +65,12 @@ function agentFor(deviceId) {
 }
 
 function closeOtherConnections(activeDeviceId) {
+  for (const [id, gate] of gates) {
+    if (id === activeDeviceId) continue;
+    for (const waiting of gate.pending) waiting.reject(new Error('USB device disconnected'));
+    gate.pending.length = 0;
+    gates.delete(id);
+  }
   for (const [id, agent] of agents) {
     if (id === activeDeviceId) continue;
     agent.destroy();
@@ -44,7 +78,7 @@ function closeOtherConnections(activeDeviceId) {
   }
 }
 
-function request(deviceId, method, path, { json, file, size, data, timeout = 120000 } = {}) {
+async function request(deviceId, method, path, { json, file, size, data, timeout = 120000 } = {}) {
   let body = null;
   if (json !== undefined) body = Buffer.from(JSON.stringify(json), 'utf8');
   else if (data !== undefined && data !== null) body = data;
@@ -54,7 +88,9 @@ function request(deviceId, method, path, { json, file, size, data, timeout = 120
   }
   if (file && body) return Promise.reject(new Error('Cannot send a file and an in-memory body together'));
 
-  return new Promise((resolve, reject) => {
+  const release = await acquire(deviceId);
+  try {
+    return await new Promise((resolve, reject) => {
     let completed = false;
     const finish = (error, result) => {
       if (completed) return;
@@ -111,7 +147,10 @@ function request(deviceId, method, path, { json, file, size, data, timeout = 120
     } else {
       req.end(body);
     }
-  });
+    });
+  } finally {
+    release();
+  }
 }
 
 function query(params) {
