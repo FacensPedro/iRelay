@@ -135,7 +135,10 @@ class Processor {
     };
     this.jobs.set(id, job);
     this.log(`processing ${job.name}: ${job.total} chunks`);
-    this.run(job, queue).catch((error) => this.log(`processing ${job.name} stopped: ${error.message}`));
+    job.completion = this.run(job, queue).catch((error) => {
+      job.finished = true;
+      this.log(`processing ${job.name} stopped: ${error.message}`);
+    });
     this.onChange();
     return job;
   }
@@ -159,7 +162,7 @@ class Processor {
           next += 1;
           active += 1;
           activeBytes += bytes;
-          Promise.resolve().then(() => this.one(item)).then(() => {
+          Promise.resolve().then(() => this.one(item, job)).then(() => {
             job.chunksDone += 1;
             job.bytesDone += item.chunk.size;
             job.compressedDone += item.chunk.compressed;
@@ -188,10 +191,13 @@ class Processor {
     this.onChange();
   }
 
-  async one({ depot, file, chunk }) {
+  async one({ depot, file, chunk }, job) {
+    if (job.cancelled) throw new Error('Transfer stopped');
     const raw = await this.download(depot, chunk.sha);
+    if (job.cancelled) throw new Error('Transfer stopped');
     const data = await this.pool.decode({ raw, key: depot.key, size: chunk.size, crc: chunk.crc, sha: chunk.sha });
     for (let attempt = 1; ; attempt += 1) {
+      if (job.cancelled) throw new Error('Transfer stopped');
       try {
         await this.write(depot.root, file.path, chunk.offset, file.size, chunk.sha, data);
         return;
@@ -277,6 +283,16 @@ class Processor {
       this.log(`processing ${job.name} stopped by iDeck`);
       this.onChange();
     }
+  }
+
+  // Stop all PC-side work for the same Steam app and wait until writes have
+  // settled before the device removes its owned partial install directory.
+  async cancelApp(appId) {
+    const matches = [...this.jobs.values()].filter((job) =>
+      String(job.appId) === String(appId) && !job.finished);
+    for (const job of matches) this.cancel(job.id);
+    await Promise.all(matches.map((job) => job.completion));
+    return matches.length;
   }
 
   /// For the Transfers view.

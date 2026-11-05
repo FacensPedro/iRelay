@@ -97,7 +97,12 @@ async function request(deviceId, method, path, { json, file, size, data, timeout
       completed = true;
       clearTimeout(timer);
       if (error) reject(error);
-      else resolve(result);
+      else {
+        // The HTTP Agent marks the socket reusable immediately after 'end'.
+        // Defer the next request by one event-loop turn to avoid racing the
+        // socket's transition from busy to free after large streamed uploads.
+        setImmediate(() => resolve(result));
+      }
     };
     const req = http.request({
       hostname: 'ideck',
