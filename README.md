@@ -13,7 +13,7 @@ iRelay is a Windows companion for [iDeck](https://github.com/FacensPedro/iDeck).
 - **Bugs:** **iRelay bugs** and **iDeck bugs** show issue counts, categorized diagnostics, and expandable logs with copy and clear controls.\n- **Stop and clean up:** stopping a Steam download waits for outstanding PC writes to finish before iDeck removes the incomplete game-owned files. Existing installed games and update data are preserved when not owned by the cancelled install.
 - **Download acceleration:** enable **Accelerate downloads** under **Settings** to use a bounded adaptive queue (32–64 simultaneous Steam requests) and at most four CPU decoder workers. In-flight chunk allocations are budgeted to approximately 96 MiB, with no artificial bandwidth cap. Official CDN servers are ranked by latency and accessed only over verified HTTPS. The throughput target is up to 100 MB/s where the network, server, USB connection and iDeck storage permit it; this rate has not been measured on a real device.
 - **Clear unused cache:** in **Settings**, choose **Clear** under **Unused cache** to remove cached images, incomplete update downloads and older update archives. iRelay shows the space freed, preserves the running version and the newest downloaded update, and keeps settings, libraries and active Steam transfers. Cleanup waits until any update has finished.
-- **Updates:** iRelay updates itself at start, or from **Update iRelay**, without running the installer again.
+- **Updates:** iRelay checks for new versions at startup. **Update iRelay** in About downloads and verifies the full Windows installer and asks for Windows approval, updating Electron, Node.js, native resources, and application code together. Downloads are not interrupted by automatic updates.
 - **Folders:** **About** opens iRelay's data folder (log, updates, settings) and its program folder.
 
 ## Requirements
@@ -54,7 +54,7 @@ Defender can still check the installer itself before it runs. Code signing remov
 
 ## Updating
 
-iRelay updates itself when it starts. **Update iRelay**, in the sidebar or in About, checks and updates at any time. Neither needs an installer: the new version is downloaded, verified and loaded on restart.
+iRelay checks for updates on startup without changing the installed program. Choose **Update iRelay** in **About** to download the complete Windows installer, validate the published ZIP's SHA-256, and open it. Approve the Windows installer prompt to replace all app, Electron/Node.js, executable and resource files. Active Steam transfers must finish or be paused before an update. Older ASAR-only overlays are ignored by updated executables.
 
 Updates need this repository to be public: GitHub does not publish a private repository's releases to programs.
 
@@ -69,7 +69,7 @@ npm test
 npm run build
 ```
 
-`dist/iRelay.exe` is the program. `dist/app-<version>.asar` (with its `.sha256`) is the archive the updater downloads. Raising `version` in `package.json` on `main` publishes a new release automatically.
+`dist/iRelay-Setup.exe` is the complete installer. The release includes `iRelay-<version>-win-x64.zip` with a `.sha256` receipt. ASAR artifacts remain for compatibility with older clients but are **not** the update mechanism for current installations. Raising `version` in `package.json` on `main` publishes a new release after successful Windows verification.
 
 ## License
 

@@ -139,6 +139,8 @@ class Processor {
       totalBytes: queue.reduce((sum, item) => sum + item.chunk.size, 0),
       chunksDone: 0, bytesDone: 0, compressedDone: 0, failed: [], finished: false, cancelled: false,
       started: Date.now(), polled: Date.now(),
+      usbCongested: false, usbSlowStreak: 0, usbHealthyStreak: 0,
+      networkBytes: 0, usbDeliveredBytes: 0, usbCongestionEvents: 0,
     };
     this.jobs.set(id, job);
     this.log(`processing ${job.name}: ${job.total} chunks`);
@@ -160,7 +162,11 @@ class Processor {
           job.cancelled = true;
           this.log(`processing ${job.name} stopped: iDeck no longer follows it`);
         }
-        while (next < queue.length && !job.cancelled && active < this.concurrency) {
+        // Keep fetching, decoding and writing concurrently, but reduce the
+        // number of buffered PC chunks when device-side USB writes stall.
+        // Normal bandwidth is never artificially rate-limited.
+        const currentLimit = job.usbCongested ? Math.min(8, this.concurrency) : this.concurrency;
+        while (next < queue.length && !job.cancelled && active < currentLimit) {
           const item = queue[next];
           const bytes = estimatedMemory(item.chunk);
           // A single large chunk may exceed the budget, but never start a
@@ -195,12 +201,37 @@ class Processor {
     job.finished = true;
     job.ended = Date.now();
     this.log(`processed ${job.name}: ${job.chunksDone}/${job.total} chunks, ${job.failed.length} left to iDeck`);
+    this.log(`pipeline ${job.name}: downloaded=${job.networkBytes}B transferred=${job.usbDeliveredBytes}B congestion-events=${job.usbCongestionEvents} elapsed=${Math.max(0, job.ended - job.started)}ms`);
     this.onChange();
+  }
+
+  noteUSBDelivery(job, elapsedMs, failed = false) {
+    if (failed || elapsedMs >= 1600) {
+      job.usbSlowStreak = (job.usbSlowStreak || 0) + 1;
+      job.usbHealthyStreak = 0;
+      if (!job.usbCongested && (failed || job.usbSlowStreak >= 4)) {
+        job.usbCongested = true;
+        job.usbCongestionEvents = (job.usbCongestionEvents || 0) + 1;
+        this.log(`USB delivery congested for ${job.name}; reducing buffered Steam chunks`);
+      }
+    } else {
+      job.usbSlowStreak = 0;
+      if (job.usbCongested) {
+        job.usbHealthyStreak = (job.usbHealthyStreak || 0) + 1;
+        if (job.usbHealthyStreak >= 16) {
+          job.usbCongested = false;
+          job.usbHealthyStreak = 0;
+          this.log(`USB delivery recovered for ${job.name}; restoring normal pipeline`);
+        }
+      }
+    }
+    if (job.pump) job.pump();
   }
 
   async one({ depot, file, chunk }, job) {
     if (job.cancelled) throw new Error('Transfer stopped');
     const raw = await this.download(depot, chunk.sha);
+    job.networkBytes = (job.networkBytes || 0) + raw.length;
     if (job.cancelled) throw new Error('Transfer stopped');
     const data = await this.pool.decode({ raw, key: depot.key, size: chunk.size, crc: chunk.crc, sha: chunk.sha });
     // Keep the already-verified chunk in memory while the iPad's USB service
@@ -208,8 +239,11 @@ class Processor {
     const deadline = Date.now() + USB_WRITE_RETRY_WINDOW_MS;
     for (let attempt = 1; ; attempt += 1) {
       if (job.cancelled) throw new Error('Transfer stopped');
+      const writeStarted = Date.now();
       try {
         await this.write(depot.root, file.path, chunk.offset, file.size, chunk.sha, data);
+        job.usbDeliveredBytes = (job.usbDeliveredBytes || 0) + data.length;
+        this.noteUSBDelivery(job, Date.now() - writeStarted);
         if (job.usbFailureLogged && !job.usbRecoveryLogged) {
           job.usbRecoveryLogged = true;
           this.log(`USB transfer resumed for ${job.name}`);
@@ -221,6 +255,7 @@ class Processor {
         // A failed response can happen after a valid write: iDeck checks the
         // SHA-1 again, making writing the same chunk at the same offset safe.
         const message = String(error?.message || error);
+        this.noteUSBDelivery(job, Date.now() - writeStarted, true);
         if (/SHA-1 mismatch|invalid transfer|invalid path|HTTP 400|HTTP 403|HTTP 409|HTTP 422|HTTP 507/i.test(message) ||
             Date.now() >= deadline) throw error;
         if (!job.usbFailureLogged) {

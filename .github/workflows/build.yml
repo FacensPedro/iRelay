@@ -56,15 +56,33 @@ jobs:
           "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
           # The zip holds only the installer.
           Compress-Archive -Path dist/iRelay-Setup.exe -DestinationPath "dist/iRelay-$version-win-x64.zip"
+          $filename = "iRelay-$version-win-x64.zip"
+          $checksum = (Get-FileHash "dist/$filename" -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Resolve-Path dist) "$filename.sha256"),
+            "$checksum  $filename" + [Environment]::NewLine,
+            [System.Text.Encoding]::ASCII
+          )
+          # Verify that the complete installer package matches the published receipt.
+          $actual = (Get-FileHash "dist/$filename" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $checksum) { throw "Full installer checksum verification failed" }
+          $extract = Join-Path $env:RUNNER_TEMP 'ideck-irelay-installer-test'
+          New-Item -ItemType Directory -Force -Path $extract | Out-Null
+          tar.exe -xf "dist/$filename" -C $extract iRelay-Setup.exe
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $extract 'iRelay-Setup.exe'))) {
+            throw "Full update ZIP cannot be extracted by Windows tar.exe"
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: iRelay-win-x64
           path: |
             dist/iRelay-*-win-x64.zip
+            dist/iRelay-*-win-x64.zip.sha256
             dist/app-*.asar
             dist/app-*.asar.sha256
-      # A new version in package.json on main becomes a release; running copies
-      # of iRelay pick it up the next time they start.
+      # A new version on main publishes the complete Windows installer.
+      # The app checks for updates on startup and requires the user's explicit
+      # Update action and Windows confirmation to replace the full installation.
       - name: Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
@@ -76,6 +94,6 @@ jobs:
           if gh release view "v$VERSION" >/dev/null 2>&1; then
             gh release edit "v$VERSION" --title "iRelay $VERSION" --notes-file RELEASE_NOTES.md
           else
-            gh release create "v$VERSION" "dist/iRelay-$VERSION-win-x64.zip" "dist/app-$VERSION.asar" "dist/app-$VERSION.asar.sha256" \
+            gh release create "v$VERSION" "dist/iRelay-$VERSION-win-x64.zip" "dist/iRelay-$VERSION-win-x64.zip.sha256" "dist/app-$VERSION.asar" "dist/app-$VERSION.asar.sha256" \
               --title "iRelay $VERSION" --notes-file RELEASE_NOTES.md
           fi
