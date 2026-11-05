@@ -51,7 +51,8 @@ test('acceleration changes a running transfer and disabling drains to the normal
   value.setAccelerated(true);
   await flush();
   const acceleratedLimit = value.concurrency;
-  assert.ok(acceleratedLimit >= 64);
+  assert.ok(acceleratedLimit >= 32 && acceleratedLimit <= 64);
+  assert.ok(value.workerCount <= 4, 'acceleration must not launch excessive CPU workers');
   assert.equal(calls, acceleratedLimit);
   value.setAccelerated(false);
   pending.splice(0, acceleratedLimit - 24).forEach((resolve) => resolve());
