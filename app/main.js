@@ -13,6 +13,7 @@ const { clearUnusedCache } = require('./cache');
 const settings = new Settings(path.join(app.getPath('userData'), 'settings.json'));
 
 const VERSION = (global.irelay && global.irelay.version) || app.getVersion();
+const INSTALLED_VERSION = (global.irelay && global.irelay.bundledVersion) || app.getVersion();
 const log = global.irelayLog || (() => {});
 const SMOKE = process.argv.includes('--smoke-test');
 
@@ -411,32 +412,38 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     if (!deviceId) throw new Error('Connect a device with iDeck first.');
     return device.logs(deviceId);
   });
-  // The Update button: the same update as at start, then a restart into it.
+  // Update the full Windows installation (EXE, Electron/Node and resources),
+  // not just the application's ASAR. Never replace files during USB transfers.
   ipcMain.handle('openFolder', (_, which) => {
     const folder = which === 'program' ? path.dirname(process.execPath) : app.getPath('userData');
     return shell.openPath(folder);
   });
   ipcMain.handle('checkUpdate', async () => {
     if (state.update.busy || state.cache.busy) return;
+    if (processor && [...processor.jobs.values()].some((job) => !job.finished)) {
+      state.update = { busy: false, message: 'Finish or pause active transfers before updating iRelay.' };
+      push();
+      return;
+    }
     state.update = { ...state.update, busy: true, message: 'Checking for updates…' };
     push();
     try {
-      const result = await updater.check(VERSION, (text) => { state.update.message = text; push(); });
-      if (result.installed) {
-        state.update.message = `Restarting into iRelay ${result.installed}…`;
-        push();
-        log(`updated to ${result.installed} (Update button); restarting`);
-        setTimeout(() => updater.restart(), 800);
+      const report = (message) => { state.update.message = message; push(); };
+      const latest = await updater.check(INSTALLED_VERSION, report);
+      if (latest.available) {
+        const prepared = await updater.prepare(latest.release, report);
+        report('Opening the full iRelay ' + prepared.version + ' installer. Confirm the Windows permission prompt.');
+        log('full installer prepared for iRelay ' + prepared.version);
+        await updater.install(prepared);
         return;
       }
-      state.update = { ...state.update, busy: false, message: `iRelay ${VERSION} is the latest version.` };
+      state.update = { busy: false, message: 'The installed iRelay ' + INSTALLED_VERSION + ' is up to date.' };
     } catch (error) {
-      log(`update failed: ${error.message}`);
-      state.update = { ...state.update, busy: false, message: error.message };
+      log('full update failed: ' + error.message);
+      state.update = { busy: false, message: error.message };
     }
     push();
   });
-
 
   // MARK: Start
 
@@ -467,15 +474,13 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     log(`iRelay ${VERSION} ready`);
     if (app.isPackaged && !SMOKE) {
       try {
-        const result = await updater.check(VERSION, status);
-        if (result.installed) {
-          status(`Restarting into iRelay ${result.installed}…`);
-          log(`updated to ${result.installed}; restarting`);
-          setTimeout(() => updater.restart(), 600);
-          return;
+        const result = await updater.check(INSTALLED_VERSION, status);
+        if (result.available) {
+          state.update.message = `iRelay ${result.version} is available. Open About > Update iRelay to install the full Windows package.`;
+          log(`full installer available: ${result.version}; installed: ${INSTALLED_VERSION}`);
         }
       } catch (error) {
-        // Offline or GitHub unreachable: start this version.
+        // Offline or GitHub unreachable: keep the current working installation.
         log(`update check skipped: ${error.message}`);
         state.update.message = error.message;
       }
