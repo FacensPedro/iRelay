@@ -94,10 +94,13 @@ function renderDevice() {
   $('device-dot').className = `device-dot ${cable.status === 'connected' ? 'on' : cable.status === 'waiting' ? 'warn' : ''}`;
   const info = cable.device;
   $('device-title').textContent = info ? info.name : 'No device';
-  const model = info ? [info.model, info.iosVersion && `iOS ${info.iosVersion}`].filter(Boolean).join(' · ') : '';
+  // The device's name appears only above. Show system version, storage and
+  // iDeck version in the subtitle, never duplicate model/name information.
   $('device-text').textContent = cable.status === 'connected'
-    ? `${model} · iDeck ${info.version} · ${size(info.freeBytes)} free`
-    : [model, cable.message].filter(Boolean).join(' — ');
+    ? [info.iosVersion && `iOS ${info.iosVersion}`,
+       Number.isFinite(info.freeBytes) && `${size(info.freeBytes)} free`,
+       info.version && `iDeck ${info.version}`].filter(Boolean).join(' · ')
+    : cable.message || 'Waiting for a device…';
   const select = $('device-select');
   const devices = state.devices || [];
   select.classList.toggle('hidden', devices.length < 2);
