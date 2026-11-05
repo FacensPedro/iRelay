@@ -1,6 +1,6 @@
 'use strict';
 const path = require('path');
-const { app, BrowserWindow, ipcMain, shell, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, nativeTheme, dialog } = require('electron');
 const usbmux = require('./usbmux');
 const device = require('./device');
 const lockdown = require('./lockdown');
@@ -441,6 +441,27 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   // MARK: Start
 
   app.whenReady().then(async () => {
+    // Updating an .asar does not upgrade Electron or its embedded Node.js.
+    // Existing 3.5.7 installs can load the updated app code in an Electron 31
+    // executable; require a new Windows installer before USB transfers begin.
+    const electronMajor = Number(process.versions.electron?.split('.')[0] || 0);
+    const nodeMajor = Number(process.versions.node.split('.')[0]);
+    if (electronMajor < 42 || nodeMajor < 24) {
+      log(`legacy runtime electron=${process.versions.electron} node=${process.versions.node}; full installer required`);
+      const choice = await dialog.showMessageBox({
+        type: 'warning', title: 'iRelay needs an updated installer',
+        message: 'An updated iRelay.exe is required for Node.js 24.',
+        detail: 'Application-only updates cannot replace the Node.js runtime bundled with Electron. Install the latest Windows version of iRelay.',
+        buttons: ['Open iRelay releases', 'Close'], defaultId: 0, cancelId: 1,
+      });
+      if (choice.response === 0) {
+        try { await shell.openExternal('https://github.com/FacensPedro/iRelay/releases/latest'); }
+        catch (error) { log(`could not open releases: ${error.message}`); }
+      }
+      app.quit();
+      return;
+    }
+    if (SMOKE) log(`runtime check passed electron=${process.versions.electron} node=${process.versions.node}`);
     createWindow();
     const status = (text) => { state.boot = text; push(); };
     log(`iRelay ${VERSION} ready`);
@@ -475,11 +496,13 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     try { fs.unlinkSync(path.join(app.getPath('userData'), 'github-token.bin')); } catch { /* none */ }
     state.ready = true;
     state.boot = '';
-    every(2000, pollCable);
+    every(5000, pollCable);
     // The device's library again every 30 s, so games copied earlier or
     // installed in iDeck itself show up without a reconnect.
-    every(30000, () => (deviceId ? refreshLibrary() : null));
-    every(2000, pollInstalls);
+    every(30000, () => (deviceId &&
+      !(processor && [...processor.jobs.values()].some((job) => !job.finished))
+      ? refreshLibrary() : null));
+    every(5000, pollInstalls);
     push();
   });
 
