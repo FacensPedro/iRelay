@@ -220,6 +220,8 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
         message: 'Install iTunes (or the Apple Devices app) so iRelay can reach devices over USB, as iloader does.',
       };
     }
+    // Reclaim keep-alive USB transports when switching or unplugging devices.
+    device.closeOtherConnections(deviceId);
     push();
   }
 
