@@ -8,7 +8,8 @@ const SERVICE_PORT = 27093;
 
 
 const http = require('http');
-// Cap device-side writes while iOS handles memory pressure and SHA-1 checks.\nconst MAX_DEVICE_SOCKETS = 4;
+// Cap device-side writes while iOS handles memory pressure and SHA-1 checks.
+const MAX_DEVICE_SOCKETS = 4;
 const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 const agents = new Map();
 const gates = new Map();
