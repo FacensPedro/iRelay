@@ -172,6 +172,9 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   const choiceFile = path.join(app.getPath('userData'), 'device.json');
   let chosen = null;
   try { chosen = JSON.parse(fs.readFileSync(choiceFile, 'utf8')).udid || null; } catch { /* first start */ }
+  let lastHealthyCable = null;
+  let lastHealthyAt = 0;
+  const CABLE_RECOVERY_GRACE_MS = 45000;
 
   async function pollCable() {
     try {
@@ -200,10 +203,29 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
         deviceId = null;
         state.cable = { status: 'waiting', message: `Unlock ${current.name === 'Device' ? 'the device' : current.name} and tap Trust.`, device: null };
       } else if (!current.ideck) {
-        deviceId = null;
-        state.cable = { status: 'waiting', message: `Open iDeck on ${current.name}.`, device: { name: current.name, model: current.model, iosVersion: current.iosVersion } };
+        // iDeck can temporarily stop accepting HTTP probes while receiving
+        // Steam chunks or under memory pressure. Do not invalidate the USB
+        // device ID on a single failed probe: this used to fail every active
+        // chunk immediately with "device not connected".
+        const recovering = lastHealthyCable &&
+          current.udid === lastHealthyCable.udid &&
+          current.id === lastHealthyCable.id &&
+          Date.now() - lastHealthyAt < CABLE_RECOVERY_GRACE_MS;
+        deviceId = recovering ? current.id : null;
+        state.cable = {
+          status: 'waiting',
+          message: recovering
+            ? 'iDeck connection interrupted — reconnecting over USB…'
+            : `Open iDeck on ${current.name}.`,
+          device: { name: current.name, model: current.model, iosVersion: current.iosVersion },
+        };
+        if (recovering) relay.tunnels([current]).catch(() => {});
       } else {
         const first = deviceId !== current.id;
+        if (state.cable.status === 'waiting' && lastHealthyCable &&
+            lastHealthyCable.id === current.id) log('iDeck USB service responded again');
+        lastHealthyCable = { id: current.id, udid: current.udid };
+        lastHealthyAt = Date.now();
         deviceId = current.id;
         state.cable = {
           status: 'connected', message: `Connected to ${current.name}`,
@@ -212,12 +234,20 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
         if (first) { state.library = null; refreshLibrary(); } else if (!state.library) refreshLibrary();
         relay.tunnels(devices.filter((entry) => entry.ideck)).catch(() => {});
       }
-    } catch {
-      deviceId = null;
-      state.devices = [];
+    } catch (error) {
+      // A temporary Apple Mobile Device Service timeout is not proof that the
+      // iPad was unplugged. Preserve the last working transfer channel for a
+      // bounded recovery window; a real disconnect will expire automatically.
+      const recovering = deviceId != null && lastHealthyCable &&
+        deviceId === lastHealthyCable.id &&
+        Date.now() - lastHealthyAt < CABLE_RECOVERY_GRACE_MS;
+      if (!recovering) deviceId = null;
+      if (!recovering) state.devices = [];
       state.cable = {
         status: 'service', device: null,
-        message: 'Install iTunes (or the Apple Devices app) so iRelay can reach devices over USB, as iloader does.',
+        message: recovering
+          ? 'Apple USB service is temporarily unavailable — retrying…'
+          : 'Check Apple Mobile Device Service and reconnect the USB cable.',
       };
     }
     // Reclaim keep-alive USB transports when switching or unplugging devices.

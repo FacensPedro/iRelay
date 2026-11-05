@@ -16,14 +16,14 @@ const NORMAL_IN_FLIGHT = 24;
 // concurrent decompression buffers. No download bandwidth throttle is applied.
 const ACCELERATED_MIN_IN_FLIGHT = 32;
 const ACCELERATED_MAX_IN_FLIGHT = 64;
-const IN_FLIGHT_BYTE_BUDGET = 96 * 1024 * 1024;
+const IN_FLIGHT_BYTE_BUDGET = 64 * 1024 * 1024;
 const MAX_ENCRYPTED_CHUNK = 32 * 1024 * 1024;
 function estimatedMemory(chunk) {
   const size = Number(chunk.size);
   const compressed = Number(chunk.compressed);
   const decoded = Number.isFinite(size) && size > 0 ? size : 1024 * 1024;
   const encoded = Number.isFinite(compressed) && compressed > 0 ? compressed : decoded;
-  return Math.min(IN_FLIGHT_BYTE_BUDGET, Math.max(64 * 1024, decoded * 2 + encoded * 2));
+  return Math.max(64 * 1024, decoded * 2 + encoded * 2);
 }
 
 // The worker's code: read here (it may live inside an asar archive, which
@@ -48,7 +48,9 @@ function workerSource() {
 }
 
 /// A job iDeck has not asked about for this long is stopped.
-const ABANDON_MS = 20000;
+// Give iDeck time to recover from temporary USB interruptions without
+// discarding all the verified PC chunks. iDeck also retries job polling.
+const ABANDON_MS = 90000;
 
 class Pool {
   constructor(size) {
@@ -202,8 +204,15 @@ class Processor {
         await this.write(depot.root, file.path, chunk.offset, file.size, chunk.sha, data);
         return;
       } catch (error) {
-        if (attempt >= 3) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+        if (job.cancelled) throw new Error('Transfer stopped');
+        // A transient USB failure must not discard the decrypted chunk and
+        // force iDeck to download the entire remaining game by itself.
+        // Integrity, invalid path and storage errors remain non-retryable.
+        const message = String(error?.message || error);
+        if (/SHA-1 mismatch|invalid transfer|invalid path|HTTP 400|HTTP 403|HTTP 409|HTTP 507/i.test(message) ||
+            attempt >= 12) throw error;
+        if (attempt === 1) this.log(`USB interrupted while transferring ${job.name}; retrying the same chunk`);
+        await new Promise((resolve) => setTimeout(resolve, Math.min(3000, attempt * 500)));
       }
     }
   }

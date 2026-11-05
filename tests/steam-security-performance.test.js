@@ -69,16 +69,16 @@ test('accelerated queue limits in-flight decoded data without throttling the net
   const job = processor.start({ appId: 1, depots: [{ files: [{ chunks }] }] });
   await flush();
   // Each in-flight chunk reserves 2x decoded + 2x compressed (12 MiB).
-  assert.equal(pending.length, 8);
+  assert.equal(pending.length, 5);
   pending.shift()();
   await flush();
-  assert.equal(pending.length, 8, 'the freed memory slot is reused immediately');
+  assert.equal(pending.length, 5, 'the freed memory slot is reused immediately');
   processor.cancel(job.id);
   pending.splice(0).forEach((resolve) => resolve());
   await flush();
   assert.equal(job.finished, true);
-  assert.equal(job.chunksDone, 9);
-  assert.equal(job.failed.length, 31);
+  assert.equal(job.chunksDone, 6);
+  assert.equal(job.failed.length, 34);
 });
 
 test('relay HTTP endpoints are accessible through USB sockets, not a listening Windows TCP port', async () => {

@@ -8,7 +8,8 @@ const SERVICE_PORT = 27093;
 
 
 const http = require('http');
-const MAX_DEVICE_SOCKETS = 8;
+// Cap device-side writes while iOS handles memory pressure and SHA-1 checks.
+const MAX_DEVICE_SOCKETS = 4;
 const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 const agents = new Map();
 const gates = new Map();
@@ -169,7 +170,7 @@ module.exports = {
   installs: (id) => request(id, 'GET', '/installs', { timeout: 10000 }),
   controlDownload: (id, body) => request(id, 'POST', '/downloads/control', { json: body, timeout: 30000 }),
   write: (id, root, relative, offset, size, sha, data) =>
-    request(id, 'PUT', `/write?${query({ root, path: relative, offset, size, sha })}`, { data, timeout: 120000 }),
+    request(id, 'PUT', `/write?${query({ root, path: relative, offset, size, sha })}`, { data, timeout: 30000 }),
   uninstall: (id, body) => request(id, 'POST', '/uninstall', { json: body, timeout: 120000 }),
   clearLogs: (id) => request(id, 'DELETE', '/logs', { timeout: 15000 }),
   logs: (id) => request(id, 'GET', '/logs', { timeout: 30000 }),
