@@ -1,6 +1,5 @@
 ## What's Changed
-- Hardened Steam chunk validation for AES-256 keys and checksums.
-- Restricted Steam downloads to verified HTTPS content servers.
-- Limited concurrent download buffers and decoder workers to reduce memory and CPU usage.
-- Removed the local TCP listener for download processing and restricted access to USB connections.
-- Removed connected-device information from About.
+- Improved USB transfer throughput by reusing persistent connections to iDeck.
+- Added a bounded connection pool for concurrent Steam chunk writes.
+- Streamed large file uploads with backpressure and lower memory overhead.
+- Closed inactive USB connections automatically when switching or disconnecting devices.
