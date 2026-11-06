@@ -323,7 +323,7 @@ function renderSettings() {
 function renderLauncher() {
   const launcher = view;
   const name = TITLES[launcher];
-  const logo = launcher === 'ea' ? 'img/ea.jpg' : 'img/ubisoft.jpg';
+  const logo = launcher === 'ea' ? 'img/ea.png' : 'img/ubisoft.png';
   const help = launcher === 'ea'
     ? 'https://www.ea.com/ea-app'
     : 'https://www.ubisoft.com/pt-br/ubisoft-connect/download';
