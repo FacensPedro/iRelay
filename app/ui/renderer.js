@@ -176,7 +176,7 @@ function renderLibrary() {
   }
   const html = `<div class="grid">${list.map((game) => {
     const meta = [
-      game.download ? `<span class="busy">${game.download.phase === 'paused' ? 'Paused' : 'Installing'} ${percent(game.download)}%${transferETA(game.download) ? ' · ' + transferETA(game.download) : ''}</span>` : '',
+      game.download ? `<span class="busy">${game.download.phase === 'paused' ? 'Paused' : 'Installing'} ${percent(game.download)}%</span>` : '',
       game.onIPad && !game.download ? '<span class="ipad">Device</span>' : '',
     ].join('');
     const canInstall = !game.onIPad && !game.download;
