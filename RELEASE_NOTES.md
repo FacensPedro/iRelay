@@ -1,3 +1,3 @@
 ## What's Changed
-- Updated EA app, Ubisoft Connect and download icons with the latest supplied artwork.
-- Updated the Windows installer and in-app update package to version 3.5.16.
+- Removed the white background from the EA app and Ubisoft Connect logos.
+- Updated the Windows installer and in-app update package to version 3.5.17.
