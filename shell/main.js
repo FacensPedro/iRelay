@@ -30,10 +30,20 @@ function transientUSB(error) {
   return /socket hang up|iDeck is not listening|iDeck USB service unavailable|usbmux timeout|usbmux refused|Apple Mobile Device connection closed|USB device disconnected|cable connection closed/i
     .test(String(error?.message || error));
 }
+const recentUSBWarnings = new Map();
+const USB_WARNING_DEDUP_MS = 30000;
 function fatal(error) {
   const details = (error && error.stack) || String(error);
   if (transientUSB(error)) {
-    log(`USB transport warning (recoverable): ${details}`);
+    // Do not repeat the same recoverable warning and stack trace for every
+    // concurrent USB socket. Retain one timestamped diagnostic per window.
+    const description = String(error?.message || error).split('\n')[0].slice(0, 320);
+    const key = String(error?.code || '') + ':' + description;
+    const now = Date.now();
+    if (now - (recentUSBWarnings.get(key) || 0) >= USB_WARNING_DEDUP_MS) {
+      log(`USB transport warning (recoverable): ${description}`);
+      recentUSBWarnings.set(key, now);
+    }
     return;
   }
   log(`FATAL ${details}`);
