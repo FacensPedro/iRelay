@@ -330,3 +330,21 @@ button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 3px; }
 .launcher-heading { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
 .launcher-heading h3 { margin: 0 0 6px; }
 .launcher-logo { width: 56px; height: 56px; object-fit: contain; border-radius: 12px; }
+
+
+/* The cover is a link to details; the download control is a separate button. */
+.card { min-width: 0; }
+.cover-details { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.cover-details img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cover-installable .cover-details img { filter: blur(3px) brightness(0.62); transform: scale(1.04); }
+.cover-download {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  display: grid; place-items: center; width: 60px; height: 60px; border: 0;
+  border-radius: 50%; background: #fff; box-shadow: 0 6px 24px rgba(0,0,0,.46);
+  cursor: pointer; z-index: 2;
+}
+.cover-download img { width: 43px; height: 43px; object-fit: contain; }
+.cover-download:hover { background: #f0f0f0; }
+.cover-download:focus-visible, .cover-details:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+.card-title-button { display: block; width: 100%; padding: 0; margin: 4px 0 0; text-align: left; border: 0;
+  background: transparent; color: inherit; font: inherit; cursor: pointer; }
