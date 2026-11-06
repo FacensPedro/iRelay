@@ -10,6 +10,7 @@ const Relay = require('./relay');
 const Processor = require('./process');
 const Settings = require('./settings');
 const { clearUnusedCache } = require('./cache');
+const { targets: launcherTargets, validateWindowsInstaller } = require('./launcher-installers');
 const settings = new Settings(path.join(app.getPath('userData'), 'settings.json'));
 
 const VERSION = (global.irelay && global.irelay.version) || app.getVersion();
@@ -298,11 +299,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   ipcMain.handle('state', () => state);
   ipcMain.handle('refresh', () => refreshLibrary());
   ipcMain.handle('uploadLauncherInstaller', async (_event, launcher) => {
-    const targets = {
-      ea: { root: 'WindowsDownloads/Launchers/EA', name: 'EAappInstaller.exe' },
-      ubisoft: { root: 'WindowsDownloads/Launchers/Ubisoft', name: 'UbisoftConnectInstaller.exe' },
-    };
-    if (!Object.hasOwn(targets, launcher)) throw new Error('Unsupported Windows launcher.');
+    if (!Object.hasOwn(launcherTargets, launcher)) throw new Error('Unsupported Windows launcher.');
     if (!deviceId || state.cable.status !== 'connected') throw new Error('Connect iDeck over USB.');
     if (Number(state.cable.device?.protocol || 0) < 4) {
       throw new Error('Update iDeck to support launcher installer transfers.');
@@ -317,33 +314,11 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     });
     if (selected.canceled || selected.filePaths.length !== 1) return { canceled: true };
     const local = selected.filePaths[0];
-    const stat = await fs.promises.stat(local);
-    if (!stat.isFile() || stat.size < 1024 || stat.size > 500 * 1024 * 1024) {
-      throw new Error('The installer must be a Windows executable smaller than 500 MB.');
-    }
-    // Reject renamed archives/scripts before allowing them into the Wine drive.
-    const handle = await fs.promises.open(local, 'r');
-    try {
-      const dos = Buffer.alloc(64);
-      const first = await handle.read(dos, 0, dos.length, 0);
-      if (first.bytesRead !== 64 || dos.toString('ascii', 0, 2) !== 'MZ') {
-        throw new Error('Selected file is not a Windows PE executable.');
-      }
-      const peOffset = dos.readUInt32LE(0x3c);
-      if (peOffset > stat.size - 6) throw new Error('Invalid Windows executable header.');
-      const pe = Buffer.alloc(6);
-      if ((await handle.read(pe, 0, 6, peOffset)).bytesRead !== 6 ||
-          pe.toString('ascii', 0, 4) !== 'PE\\0\\0' ||
-          ![0x14c, 0x8664].includes(pe.readUInt16LE(4))) {
-        throw new Error('Unsupported Windows installer architecture.');
-      }
-    } finally {
-      await handle.close();
-    }
+    const stat = await validateWindowsInstaller(local);
     state.launcherUploads[launcher] = { phase: 'uploading', message: 'Sending installer to iDeck…' };
     push();
     try {
-      await device.upload(deviceId, targets[launcher].root, targets[launcher].name, local,
+      await device.upload(deviceId, launcherTargets[launcher].root, launcherTargets[launcher].name, local,
         stat.size, Math.floor(stat.mtimeMs / 1000));
       state.launcherUploads[launcher] = { phase: 'transferred', message: 'Transferred. Run this installer from iDeck > Settings > Launchers.' };
       log(`launcher installer transferred: ${launcher} (${stat.size} bytes)`);
