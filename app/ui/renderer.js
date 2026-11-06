@@ -222,7 +222,8 @@ function renderTasks() {
   const installs = (state.installs || []).filter((item) => !hidden.has(itemKey('install', item)));
   const jobs = (state.jobs || []).filter((job) => !hidden.has(itemKey('job', job)));
   if (!installs.length && !jobs.length) {
-    setContent(emptyState('No transfers yet', 'Downloads to the connected device appear here.'));
+    setContent((transferError ? `<div class="error" role="alert">${esc(transferError)}</div>` : '') +
+      emptyState('No transfers yet', 'Downloads to the connected device appear here.'));
     return;
   }
   const installHTML = installs.map((item) => `<div class="task"><div class="task-head"><div class="task-identity">
@@ -653,6 +654,9 @@ $('content').addEventListener('click', async (event) => {
       await irelay.controlDownload({ store: control.dataset.store, id: control.dataset.id, action });
     } catch (error) {
       transferError = String(error.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+      view = 'tasks';
+      document.querySelectorAll('.nav-item').forEach((item) =>
+        item.classList.toggle('active', item.dataset.view === view));
     }
     lastGrid = '';
     render();
