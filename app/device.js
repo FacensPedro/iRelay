@@ -9,9 +9,12 @@ const SERVICE_PORT = 27093;
 
 const http = require('http');
 // Cap device-side writes while iOS handles memory pressure and SHA-1 checks.
-const MAX_DEVICE_SOCKETS = 4;
-const USB_RECOVERY_COOLDOWN_MS = 20000;
-const USB_RAMP_SUCCESS_COUNT = 12;
+// Avoid four simultaneous decompressed uploads on an iPad already doing
+// file allocation, SHA-1 verification and a large Steam install.
+// Bandwidth is still unrestricted; only outstanding USB writes are bounded.
+const MAX_DEVICE_SOCKETS = 2;
+const USB_RECOVERY_COOLDOWN_MS = 60000;
+const USB_RAMP_SUCCESS_COUNT = 32;
 const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 const agents = new Map();
 const gates = new Map();
@@ -70,7 +73,7 @@ function noteSuccess(deviceId) {
       Date.now() - gate.lastFailure < USB_RECOVERY_COOLDOWN_MS) return;
   gate.successful += 1;
   if (gate.successful >= USB_RAMP_SUCCESS_COUNT) {
-    gate.limit += 1;
+    gate.limit = Math.min(MAX_DEVICE_SOCKETS, gate.limit + 1);
     gate.successful = 0;
     drain(gate);
   }

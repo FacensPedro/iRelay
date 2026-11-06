@@ -1,5 +1,6 @@
 ## What's Changed
-- Reduced USB device detection latency while avoiding overlapping scans and unnecessary device status requests during transfers.
-- Removed repeated connected-device information; the lower status area displays system version, available storage and connected iDeck version.
-- Prevented clearing iRelay or iDeck diagnostic logs while game downloads or USB transfers are active.
-- Preserved paused downloads, installed games and diagnostic evidence.
+- Reduced simultaneous USB writes to avoid overwhelming the connected iPhone or iPad during large Steam installations.
+- Extended the recovery cooldown after a connection reset and reduced the number of buffered chunks during USB congestion.
+- Improved diagnostics when iDeck stops polling a running Steam transfer.
+- Suppressed duplicate recoverable USB warning stack traces and routine per-chunk cancellation messages.
+- Retained authenticated Steam CDN downloads, SHA-1 verification, already installed game data, and the existing download-and-transfer pipeline.

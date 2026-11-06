@@ -160,12 +160,12 @@ class Processor {
       const pump = () => {
         if (Date.now() - job.polled > ABANDON_MS && !job.cancelled) {
           job.cancelled = true;
-          this.log(`processing ${job.name} stopped: iDeck no longer follows it`);
+          this.log(`processing ${job.name} stopped: no status polls from iDeck for ${ABANDON_MS / 1000}s (possible iDeck restart, suspension or USB interruption)`);
         }
         // Keep fetching, decoding and writing concurrently, but reduce the
         // number of buffered PC chunks when device-side USB writes stall.
         // Normal bandwidth is never artificially rate-limited.
-        const currentLimit = job.usbCongested ? Math.min(8, this.concurrency) : this.concurrency;
+        const currentLimit = job.usbCongested ? Math.min(4, this.concurrency) : this.concurrency;
         while (next < queue.length && !job.cancelled && active < currentLimit) {
           const item = queue[next];
           const bytes = estimatedMemory(item.chunk);
@@ -181,7 +181,11 @@ class Processor {
             job.compressedDone += item.chunk.compressed;
           }).catch((error) => {
             job.failed.push(item.chunk.sha);
-            if (job.failed.length <= 5) this.log(`chunk ${item.chunk.sha.slice(0, 8)} of ${job.name}: ${error.message}`);
+            // A paused/cancelled install is a control action, not five new
+            // chunk failures to surface in the diagnostics tab.
+            if (!job.cancelled && job.failed.length <= 5 && error.message !== 'Transfer stopped') {
+              this.log(`chunk ${item.chunk.sha.slice(0, 8)} of ${job.name}: ${error.message}`);
+            }
           }).finally(() => {
             active -= 1;
             activeBytes -= bytes;
