@@ -329,7 +329,7 @@ button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 3px; }
 /* Store-specific installer transfer pages. */
 .launcher-heading { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
 .launcher-heading h3 { margin: 0 0 6px; }
-.launcher-logo { width: 60px; height: 60px; object-fit: contain; border-radius: 14px; background: #fff; }
+.launcher-logo { width: 60px; height: 60px; object-fit: contain; }
 
 
 /* The cover is a link to details; the download control is a separate button. */
