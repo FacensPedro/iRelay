@@ -64,11 +64,11 @@ test('adaptive congestion does not disable concurrent downloads', async () => {
   assert.equal(outstanding.length, 24);
   job.usbCongested = true;
   // Once in-flight requests finish, the next round remains pipelined, capped
-  // at eight instead of downloading everything before sending it.
+  // at four instead of downloading everything before sending it.
   const first = outstanding.splice(0, 24);
   for (const resolve of first) resolve();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(outstanding.length, 8);
+  assert.equal(outstanding.length, 4);
   proc.cancel(job.id);
   outstanding.splice(0).forEach((resolve) => resolve());
   await job.completion;
