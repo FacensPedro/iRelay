@@ -1,6 +1,4 @@
 ## What's Changed
-- Reduced simultaneous USB writes to avoid overwhelming the connected iPhone or iPad during large Steam installations.
-- Extended the recovery cooldown after a connection reset and reduced the number of buffered chunks during USB congestion.
-- Improved diagnostics when iDeck stops polling a running Steam transfer.
-- Suppressed duplicate recoverable USB warning stack traces and routine per-chunk cancellation messages.
-- Retained authenticated Steam CDN downloads, SHA-1 verification, already installed game data, and the existing download-and-transfer pipeline.
+- Updated the Windows companion application to version 3.5.14.
+- Retained the existing USB transfer recovery, Steam download integrity checks, and bounded transfer queues.
+- Retained the Node.js 24 and Electron 42 runtime and the full-installer update process.
