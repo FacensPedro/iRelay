@@ -10,6 +10,7 @@ const Relay = require('./relay');
 const Processor = require('./process');
 const Settings = require('./settings');
 const { clearUnusedCache } = require('./cache');
+const { targets: launcherTargets, validateWindowsInstaller } = require('./launcher-installers');
 const settings = new Settings(path.join(app.getPath('userData'), 'settings.json'));
 
 const VERSION = (global.irelay && global.irelay.version) || app.getVersion();
@@ -39,6 +40,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     installs: [],   // iDeck's own downloads (GET /installs)
     jobs: [],       // Steam downloads this PC processes for iDeck
     dlcQueue: {},   // appId -> DLC to install once the game is on the device
+    launcherUploads: { ea: { phase: 'idle', message: '' }, ubisoft: { phase: 'idle', message: '' } },
   };
   let deviceId = null;
   let relay = null;
@@ -296,6 +298,39 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
 
   ipcMain.handle('state', () => state);
   ipcMain.handle('refresh', () => refreshLibrary());
+  ipcMain.handle('uploadLauncherInstaller', async (_event, launcher) => {
+    if (!Object.hasOwn(launcherTargets, launcher)) throw new Error('Unsupported Windows launcher.');
+    if (!deviceId || state.cable.status !== 'connected') throw new Error('Connect iDeck over USB.');
+    if (Number(state.cable.device?.protocol || 0) < 4) {
+      throw new Error('Update iDeck to support launcher installer transfers.');
+    }
+    if (state.launcherUploads[launcher]?.phase === 'uploading') {
+      throw new Error('An installer transfer is already in progress.');
+    }
+    const selected = await dialog.showOpenDialog(window, {
+      title: 'Select the official Windows installer',
+      properties: ['openFile'],
+      filters: [{ name: 'Windows executable', extensions: ['exe'] }],
+    });
+    if (selected.canceled || selected.filePaths.length !== 1) return { canceled: true };
+    const local = selected.filePaths[0];
+    const stat = await validateWindowsInstaller(local);
+    state.launcherUploads[launcher] = { phase: 'uploading', message: 'Sending installer to iDeck…' };
+    push();
+    try {
+      await device.upload(deviceId, launcherTargets[launcher].root, launcherTargets[launcher].name, local,
+        stat.size, Math.floor(stat.mtimeMs / 1000));
+      state.launcherUploads[launcher] = { phase: 'transferred', message: 'Transferred. Run this installer from iDeck > Settings > Launchers.' };
+      log(`launcher installer transferred: ${launcher} (${stat.size} bytes)`);
+      return { transferred: true };
+    } catch (error) {
+      state.launcherUploads[launcher] = { phase: 'failed', message: error.message };
+      throw error;
+    } finally {
+      push();
+    }
+  });
+
   ipcMain.handle('setDownloadAcceleration', (_, enabled) => {
     state.settings = settings.setDownloadAcceleration(enabled);
     if (processor) processor.setAccelerated(enabled);

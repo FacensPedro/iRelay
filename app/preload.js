@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('irelay', {
   openExternal: (url) => ipcRenderer.invoke('openExternal', url),
   steamDLC: (appId) => ipcRenderer.invoke('steamDLC', appId),
   install: (request) => ipcRenderer.invoke('install', request),
+  uploadLauncherInstaller: (launcher) => ipcRenderer.invoke('uploadLauncherInstaller', launcher),
   controlDownload: (request) => ipcRenderer.invoke('controlDownload', request),
   uninstall: (request) => ipcRenderer.invoke('uninstall', request),
   selectDevice: (udid) => ipcRenderer.invoke('selectDevice', udid),

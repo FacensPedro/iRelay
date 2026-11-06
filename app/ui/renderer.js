@@ -1,7 +1,7 @@
 'use strict';
 /* global irelay */
 
-const TITLES = { steam: 'Steam', epic: 'Epic Games', gog: 'GOG', tasks: 'Transfers', settings: 'Settings', about: 'About', 'bugs-irelay': 'iRelay bugs', 'bugs-ideck': 'iDeck bugs' };
+const TITLES = { steam: 'Steam', epic: 'Epic Games', gog: 'GOG', ea: 'EA app', ubisoft: 'Ubisoft Connect', tasks: 'Transfers', settings: 'Settings', about: 'About', 'bugs-irelay': 'iRelay bugs', 'bugs-ideck': 'iDeck bugs' };
 let bugs = { 'bugs-irelay': null, 'bugs-ideck': null };
 let bugAction = { kind: '', confirm: false, busy: false, notice: '', failed: false };
 let state = null;
@@ -82,6 +82,7 @@ function render() {
     $(`count-${kind}`).textContent = found ? found : '';
   }
   if (library) renderLibrary();
+  else if (view === 'ea' || view === 'ubisoft') renderLauncher();
   else if (view === 'tasks') renderTasks();
   else if (view === 'settings') renderSettings();
   else if (view.startsWith('bugs-')) renderBugs();
@@ -291,6 +292,43 @@ function renderSettings() {
       if (view === 'settings') $('download-acceleration').focus();
     }
   };
+}
+
+function renderLauncher() {
+  const launcher = view;
+  const name = TITLES[launcher];
+  const logo = launcher === 'ea' ? 'img/ea.jpg' : 'img/ubisoft.jpg';
+  const help = launcher === 'ea'
+    ? 'https://www.ea.com/ea-app'
+    : 'https://www.ubisoft.com/pt-br/ubisoft-connect/download';
+  const transfer = state.launcherUploads?.[launcher] || {};
+  const connected = state.cable?.status === 'connected';
+  const supported = connected && Number(state.cable?.device?.protocol || 0) >= 4;
+  const busy = transfer.phase === 'uploading';
+  setContent(`<div class="settings">
+    <div class="panel">
+      <div class="launcher-heading"><img src="${logo}" alt="" class="launcher-logo">
+        <div><h3>${esc(name)}</h3><p class="note">Transfer the official Windows installer to iDeck over USB.</p></div></div>
+      <div class="bugs-bar">
+        <button class="primary" id="launcher-upload" ${!supported || busy ? 'disabled' : ''}>${busy ? 'Transferring…' : 'Transfer Windows installer'}</button>
+        <button class="secondary" id="launcher-official">Official download page</button>
+      </div>
+      <p class="note">${!connected ? 'Connect iDeck over USB first.' :
+        !supported ? 'Update iDeck to a build supporting launcher installer transfers.' :
+        'Select a Windows .exe installer downloaded from the publisher.'}</p>
+      <p class="note">Once transferred, open iDeck > Settings > Launchers to run the installer through Wine. Installer transfer does not guarantee launcher sign-in, DRM, or game compatibility.</p>
+      <p class="${transfer.phase === 'failed' ? 'error' : 'note'}" role="status">${esc(transfer.message || '')}</p>
+    </div>
+  </div>`);
+  $('launcher-official')?.addEventListener('click', () => irelay.openExternal(help));
+  $('launcher-upload')?.addEventListener('click', async () => {
+    try {
+      await irelay.uploadLauncherInstaller(launcher);
+    } catch (error) {
+      const status = $('content').querySelector('[role="status"]');
+      if (status) status.textContent = String(error.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+    }
+  });
 }
 
 function renderAbout() {

@@ -325,3 +325,8 @@ button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 3px; }
   .transfer-actions { margin-left: auto; }
   .bug-level { display: none; }
 }
+
+/* Store-specific installer transfer pages. */
+.launcher-heading { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+.launcher-heading h3 { margin: 0 0 6px; }
+.launcher-logo { width: 56px; height: 56px; object-fit: contain; border-radius: 12px; }
