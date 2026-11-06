@@ -59,6 +59,22 @@ function percent(item) {
   return item && item.total ? Math.min(100, Math.round(100 * item.done / item.total)) : 0;
 }
 
+function remainingLabel(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value <= 0 || value > 604800) return '';
+  const remaining = Math.ceil(value);
+  if (remaining < 60) return remaining + 's left';
+  if (remaining < 3600) return Math.ceil(remaining / 60) + 'm left';
+  if (remaining < 86400) return Math.floor(remaining / 3600) + 'h ' + Math.ceil((remaining % 3600) / 60) + 'm left';
+  return Math.floor(remaining / 86400) + 'd ' + Math.floor((remaining % 86400) / 3600) + 'h left';
+}
+
+function transferETA(item) {
+  if (!item || item.error || item.phase === 'paused' || item.phase === 'finishing' ||
+      item.phase === 'checking' || item.phase === 'preparing') return '';
+  return remainingLabel(item.etaSeconds);
+}
+
 // MARK: Rendering
 
 function render() {
@@ -160,12 +176,19 @@ function renderLibrary() {
   }
   const html = `<div class="grid">${list.map((game) => {
     const meta = [
-      game.download ? `<span class="busy">${game.download.phase === 'paused' ? 'Paused' : 'Installing'} ${percent(game.download)}%</span>` : '',
+      game.download ? `<span class="busy">${game.download.phase === 'paused' ? 'Paused' : 'Installing'} ${percent(game.download)}%${transferETA(game.download) ? ' · ' + transferETA(game.download) : ''}</span>` : '',
       game.onIPad && !game.download ? '<span class="ipad">Device</span>' : '',
     ].join('');
-    return `<button class="card" data-store="${store}" data-id="${esc(game.id)}">
-      <div class="cover">${game.cover ? `<img src="${esc(game.cover)}" loading="lazy" alt="">` : ''}</div>
-      <div class="card-title">${esc(game.title)}</div><div class="card-meta">${meta}</div></button>`;
+    const canInstall = !game.onIPad && !game.download;
+    return `<div class="card">
+      <div class="cover ${canInstall ? 'cover-installable' : ''}">
+        <button class="cover-details" data-card data-store="${store}" data-id="${esc(game.id)}" aria-label="Details: ${esc(game.title)}">
+          ${game.cover ? `<img src="${esc(game.cover)}" loading="lazy" alt="">` : ''}
+        </button>
+        ${canInstall ? `<button class="cover-download" data-download data-store="${store}" data-id="${esc(game.id)}" aria-label="Install ${esc(game.title)} on iDeck"><img src="img/download.png" alt=""></button>` : ''}
+      </div>
+      <button class="card-title card-title-button" data-card data-store="${store}" data-id="${esc(game.id)}">${esc(game.title)}</button>
+      <div class="card-meta">${meta}</div></div>`;
   }).join('')}</div>`;
   setContent(html);
 }
@@ -205,7 +228,7 @@ function renderTasks() {
   const installHTML = installs.map((item) => `<div class="task"><div class="task-head"><div class="task-identity">
     ${transferArtwork(item.store, item.id)}
     <div class="task-copy"><div class="task-title">${esc(item.title)}</div>
-    <div class="task-meta">${item.error ? `<span class="error">${esc(item.error)}</span>` : `${esc(TITLES[item.store] || item.store)} · ${esc(item.phase)} · ${percent(item)}%`}</div></div></div>
+    <div class="task-meta">${item.error ? `<span class="error">${esc(item.error)}</span>` : `${esc(TITLES[item.store] || item.store)} · ${esc(item.phase)} · ${percent(item)}%${transferETA(item) ? ' · ' + transferETA(item) : ''}`}</div></div></div>
     <div class="transfer-actions">
       ${!item.error && downloadControlsSupported() ? `
         <button class="secondary" data-control="${item.phase === 'paused' ? 'resume' : 'pause'}"
@@ -217,10 +240,12 @@ function renderTasks() {
   const jobHTML = jobs.map((job) => {
     const done = Math.round(100 * job.done / Math.max(1, job.total));
     const speed = job.seconds > 0 ? job.bytes / job.seconds : 0;
+    const jobETA = !job.finished && job.seconds > 1 && speed > 1024 && job.totalBytes > job.bytes
+      ? remainingLabel((job.totalBytes - job.bytes) / speed) : '';
     return `<div class="task"><div class="task-head"><div class="task-identity">
       ${transferArtwork('steam', job.appId)}
       <div class="task-copy"><div class="task-title">${esc(job.name)}</div>
-      <div class="task-meta">Processed on this PC · ${done}% · ${size(job.bytes)} of ${size(job.totalBytes)}${job.finished ? '' : ` · ${size(speed)}/s`}${job.failed ? ` · ${job.failed} left to iDeck` : ''}</div></div></div>
+      <div class="task-meta">Processed on this PC · ${done}% · ${size(job.bytes)} of ${size(job.totalBytes)}${job.finished ? '' : ` · ${size(speed)}/s${jobETA ? ' · ' + jobETA : ''}`}${job.failed ? ` · ${job.failed} left to iDeck` : ''}</div></div></div>
       <div class="transfer-actions">
         ${!job.finished && downloadControlsSupported() && job.appId ? `
           <button class="secondary" data-control="pause" data-store="steam" data-id="${esc(job.appId)}">Pause</button>
@@ -496,7 +521,7 @@ function renderDrawer() {
   const store = TITLES[game.store];
   let actions;
   if (game.download) {
-    actions = `<div class="task" style="margin:0"><div class="task-meta">${esc(game.download.phase)} · ${percent(game.download)}%</div>
+    actions = `<div class="task" style="margin:0"><div class="task-meta">${esc(game.download.phase)} · ${percent(game.download)}%${transferETA(game.download) ? ' · ' + transferETA(game.download) : ''}</div>
       <div class="bar"><span class="sent" style="width:${percent(game.download)}%"></span></div></div>`
       + (downloadControlsSupported() ? `<div class="transfer-actions">
         <button class="secondary" data-action="${game.download.phase === 'paused' ? 'resume-download' : 'pause-download'}">${game.download.phase === 'paused' ? 'Resume' : 'Pause'}</button>
@@ -635,7 +660,27 @@ $('content').addEventListener('click', async (event) => {
   }
   const hide = event.target.closest('[data-hide]');
   if (hide) { hidden.add(hide.dataset.hide); lastGrid = ''; render(); return; }
-  const card = event.target.closest('.card');
+  const directDownload = event.target.closest('[data-download]');
+  if (directDownload) {
+    const store = directDownload.dataset.store;
+    const id = directDownload.dataset.id;
+    const game = games(store).find((item) => String(item.id) === id);
+    if (!game || game.onIPad || game.download) return;
+    directDownload.disabled = true;
+    transferError = '';
+    try {
+      await irelay.install({ ...request(game), withDLC: [] });
+      view = 'tasks';
+      document.querySelectorAll('.nav-item').forEach((item) =>
+        item.classList.toggle('active', item.dataset.view === view));
+    } catch (error) {
+      transferError = String(error.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+    }
+    lastGrid = '';
+    render();
+    return;
+  }
+  const card = event.target.closest('[data-card]');
   if (!card) return;
   selected = { store: card.dataset.store, id: card.dataset.id };
   picked.clear();
