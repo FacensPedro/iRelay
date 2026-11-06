@@ -1,4 +1,5 @@
 ## What's Changed
-- Updated the Windows companion application to version 3.5.14.
-- Retained the existing USB transfer recovery, Steam download integrity checks, and bounded transfer queues.
-- Retained the Node.js 24 and Electron 42 runtime and the full-installer update process.
+- Updated download, EA app and Ubisoft Connect icons throughout the interface.
+- Improved game library cards and the download button overlay on game covers.
+- Moved remaining installation time from the library grid to each game's details.
+- Preserved USB transfer integrity checks and Node.js 24 / Electron 42 compatibility.
