@@ -1,5 +1,5 @@
 ## What's Changed
-- iRelay connects to iDeck over the local network (Wi-Fi or Ethernet) instead of a USB cable. Apple's device service is no longer needed.
-- Pair once: find the iPad on the network (or type its address) and enter the pairing code shown in iDeck > Settings > iRelay. Requires iDeck 1.1 or later.
-- Nothing listens on the PC, so Windows Firewall needs no rule.
-- Updated the Windows installer and in-app update package to version 3.6.0.
+- EA app library: iRelay shows the EA games iDeck is signed in to and starts their download on iDeck. No EA app is needed. Requires iDeck 1.1 or later.
+- Ubisoft Connect library: games installed by Ubisoft Connect on this PC can be copied to iDeck, which starts them through Ubisoft Connect.
+- The launcher installer transfer pages were removed.
+- Updated the Windows installer and in-app update package to version 3.7.0.

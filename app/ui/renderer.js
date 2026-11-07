@@ -98,7 +98,6 @@ function render() {
     $(`count-${kind}`).textContent = found ? found : '';
   }
   if (library) renderLibrary();
-  else if (view === 'ea' || view === 'ubisoft') renderLauncher();
   else if (view === 'tasks') renderTasks();
   else if (view === 'settings') renderSettings();
   else if (view.startsWith('bugs-')) renderBugs();
@@ -200,15 +199,21 @@ function renderLibrary() {
     setContent(emptyState(`Sign in to ${TITLES[store]} in iDeck`, `iRelay shows the ${TITLES[store]} library iDeck is signed in to. Sign in from iDeck’s Settings, then reload.`));
     return;
   }
+  // Ubisoft: games Ubisoft Connect installed on this PC, copied to iDeck and
+  // started there through Ubisoft Connect.
+  const ubisoftNote = store === 'ubisoft'
+    ? `<p class="note library-note">Games installed by Ubisoft Connect on this PC. Install on device copies the game to iDeck; it starts there through Ubisoft Connect${library.clientInstalled ? '' : ' (install it in iDeck › Settings › Ubisoft Connect)'}.</p>`
+    : '';
   let list = games(store);
   if (filter === 'pc') list = list.filter((game) => game.download);
   if (filter === 'ipad') list = list.filter((game) => game.onIPad);
   if (query) list = list.filter((game) => game.title.toLowerCase().includes(query));
   if (!list.length) {
-    setContent(emptyState('Nothing here', query ? 'No game matches your search.' : 'No games in this view.'));
+    setContent(ubisoftNote + emptyState('Nothing here', query ? 'No game matches your search.'
+      : store === 'ubisoft' ? 'No Ubisoft Connect games are installed on this PC.' : 'No games in this view.'));
     return;
   }
-  const html = `<div class="grid">${list.map((game) => {
+  const html = ubisoftNote + `<div class="grid">${list.map((game) => {
     const meta = [
       game.download ? `<span class="busy">${game.download.phase === 'paused' ? 'Paused' : 'Installing'} ${percent(game.download)}%</span>` : '',
       game.onIPad && !game.download ? '<span class="ipad">Device</span>' : '',
@@ -352,43 +357,6 @@ function renderSettings() {
       if (view === 'settings') $('download-acceleration').focus();
     }
   };
-}
-
-function renderLauncher() {
-  const launcher = view;
-  const name = TITLES[launcher];
-  const logo = launcher === 'ea' ? 'img/ea.png' : 'img/ubisoft.png';
-  const help = launcher === 'ea'
-    ? 'https://www.ea.com/ea-app'
-    : 'https://www.ubisoft.com/pt-br/ubisoft-connect/download';
-  const transfer = state.launcherUploads?.[launcher] || {};
-  const connected = state.cable?.status === 'connected';
-  const supported = connected && Number(state.cable?.device?.protocol || 0) >= 4;
-  const busy = transfer.phase === 'uploading';
-  setContent(`<div class="settings">
-    <div class="panel">
-      <div class="launcher-heading"><img src="${logo}" alt="" class="launcher-logo">
-        <div><h3>${esc(name)}</h3><p class="note">Transfer the official Windows installer to iDeck over the local network.</p></div></div>
-      <div class="bugs-bar">
-        <button class="primary" id="launcher-upload" ${!supported || busy ? 'disabled' : ''}>${busy ? 'Transferring…' : 'Transfer Windows installer'}</button>
-        <button class="secondary" id="launcher-official">Official download page</button>
-      </div>
-      <p class="note">${!connected ? 'Connect to iDeck first.' :
-        !supported ? 'Update iDeck to a build supporting launcher installer transfers.' :
-        'Select a Windows .exe installer downloaded from the publisher.'}</p>
-      <p class="note">Once transferred, open iDeck > Settings > Launchers to run the installer through Wine. Installer transfer does not guarantee launcher sign-in, DRM, or game compatibility.</p>
-      <p class="${transfer.phase === 'failed' ? 'error' : 'note'}" role="status">${esc(transfer.message || '')}</p>
-    </div>
-  </div>`);
-  $('launcher-official')?.addEventListener('click', () => irelay.openExternal(help));
-  $('launcher-upload')?.addEventListener('click', async () => {
-    try {
-      await irelay.uploadLauncherInstaller(launcher);
-    } catch (error) {
-      const status = $('content').querySelector('[role="status"]');
-      if (status) status.textContent = String(error.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
-    }
-  });
 }
 
 function renderAbout() {
@@ -616,6 +584,8 @@ function renderDrawer() {
 function request(game) {
   if (game.store === 'steam') return { store: 'steam', appId: game.id, title: game.title };
   if (game.store === 'epic') return { store: 'epic', appName: game.id, title: game.title, namespace: game.raw.namespace, catalogItemId: game.raw.catalogItemId };
+  if (game.store === 'ea') return { store: 'ea', id: game.id, title: game.title };
+  if (game.store === 'ubisoft') return { store: 'ubisoft', id: game.id, title: game.title };
   return { store: 'gog', id: game.id, title: game.title };
 }
 
