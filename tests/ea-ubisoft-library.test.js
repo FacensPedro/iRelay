@@ -61,6 +61,9 @@ test('launcher installer transfers are gone and EA installs go to iDeck', () => 
 
 test('EA app and Ubisoft Connect tabs render their game libraries instead of the About updater', () => {
   const renderer = fs.readFileSync(path.join(__dirname, '../app/ui/renderer.js'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '../app/ui/index.html'), 'utf8');
+  assert.match(html, /id="count-ea"/);
+  assert.match(html, /id="count-ubisoft"/);
   assert.match(renderer, /const library = \['steam', 'epic', 'gog', 'ea', 'ubisoft'\]\.includes\(view\);/);
   assert.match(renderer, /if \(library\) renderLibrary\(\);/);
   assert.match(renderer, /for \(const store of \['steam', 'epic', 'gog', 'ea', 'ubisoft'\]\)/);
