@@ -70,19 +70,19 @@ test('Steam chunk writes reuse connections with at most eight live sockets', asy
         i * 128, 50000, 'a'.repeat(40), Buffer.alloc(128, i));
       assert.equal(result.received, 128);
     }
-    assert.equal(stats().connections, 1, 'sequential transfers must reuse the same USB tunnel');
+    assert.equal(stats().connections, 1, 'sequential transfers must reuse the same LAN connection');
 
     const values = await Promise.all(Array.from({ length: 40 }, (_, i) =>
       device.write('10.0.0.42', 'SteamLibrary/common/Game', 'game.bin',
         i * 1024, 65536, 'a'.repeat(40), Buffer.alloc(1024, i))));
     assert.equal(values.length, 40);
     assert.ok(values.every((v) => v.received === 1024));
-    assert.ok(stats().peakConnections <= 4, 'pool must cap simultaneously active USB sockets; peak=' + stats().peakConnections);
+    assert.ok(stats().peakConnections <= 4, 'pool must cap simultaneously active LAN sockets; peak=' + stats().peakConnections);
   });
 });
 
 test('large file uploads stream over the network with fixed-size buffers', async () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'irelay-usb-stream-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'irelay-lan-stream-'));
   const filename = path.join(directory, 'payload.bin');
   const bytes = 3 * 1024 * 1024 + 123;
   fs.writeFileSync(filename, Buffer.alloc(bytes, 0x5a));
@@ -95,7 +95,11 @@ test('large file uploads stream over the network with fixed-size buffers', async
       assert.equal(stats().transferred, bytes);
       const info = await device.info('10.0.0.43');
       assert.equal(info.protocol, 3);
-      assert.equal(stats().connections, 1, 'the uploaded file must leave the USB socket reusable');
+      assert.ok(stats().connections <= 2, 'a streamed upload and follow-up LAN request must respect the two-socket pool; opened=' + stats().connections);
+      const opened = stats().connections;
+      const repeatedInfo = await device.info('10.0.0.43');
+      assert.equal(repeatedInfo.protocol, 3);
+      assert.equal(stats().connections, opened, 'subsequent LAN requests must reuse a pooled connection');
     });
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
