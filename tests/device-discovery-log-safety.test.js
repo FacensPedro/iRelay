@@ -9,10 +9,10 @@ const renderer = fs.readFileSync(path.join(root, 'app/ui/renderer.js'), 'utf8');
 
 test('device polls cannot overlap and device info is reused briefly', () => {
   assert.match(main, /every\(2000, pollCable\)/);
-  assert.match(main, /let cablePollInFlight = false/);
-  assert.match(main, /if \(cablePollInFlight\) return;/);
+  assert.match(main, /let cablePollInFlight = null/);
+  assert.match(main, /if \(!fresh\) return;/);
   assert.match(main, /Date\.now\(\) - lastDeviceProbeAt < 5000/);
-  assert.match(main, /cablePollInFlight = false;/);
+  assert.match(main, /finally \{ cablePollInFlight = null; done\(\); \}/);
 });
 
 test('connected device name is not duplicated in the metadata line', () => {

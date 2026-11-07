@@ -180,7 +180,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   let lastHealthy = null;
   let lastHealthyAt = 0;
   let lastDeviceProbeAt = 0;
-  let cablePollInFlight = false;
+  let cablePollInFlight = null;
 
   function syncPairings() {
     const { pairings, selected } = settings.value;
@@ -191,14 +191,49 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     return { pairings, selected };
   }
 
-  async function pollCable() {
-    // Never overlap probes: fast, non-overlapping polls notice an iPad that
-    // leaves or joins the network without connection storms during transfers.
-    if (cablePollInFlight) return;
-    cablePollInFlight = true;
+  // Never overlap probes: fast, non-overlapping polls notice an iPad that
+  // leaves or joins the network without connection storms during transfers.
+  // A caller that needs a fresh answer (pairing) waits for the poll in flight
+  // and then runs its own.
+  async function pollCable({ fresh = false } = {}) {
+    while (cablePollInFlight) {
+      if (!fresh) return;
+      await cablePollInFlight;
+    }
+    let done;
+    cablePollInFlight = new Promise((resolve) => { done = resolve; });
+    try { await pollCableOnce(); }
+    finally { cablePollInFlight = null; done(); }
+  }
+
+  const WRONG_CODE = 'Wrong pairing code. Enter the code shown in iDeck > Settings > iRelay.';
+  const REDISCOVER_INTERVAL_MS = 30000;
+  let lastRediscoverAt = 0;
+
+  /// A paired iPad that no longer answers may have a new address: looks for
+  /// the iDeck with the same identifier on this PC's networks.
+  async function rediscover(host) {
+    const id = (settings.value.deviceIds || {})[host];
+    if (!id || Date.now() - lastRediscoverAt < REDISCOVER_INTERVAL_MS) return null;
+    lastRediscoverAt = Date.now();
+    const found = (await lan.discover().catch(() => [])).find((item) => item.deviceID === id && item.host !== host);
+    if (!found) return null;
+    log(`paired iPad moved from ${host} to ${found.host}`);
+    settings.move(host, found.host);
+    device.setCode(host, null);
+    relay?.allow(found.host);
+    return found.host;
+  }
+
+  async function pollCableOnce() {
     try {
       const { pairings, selected: host } = syncPairings();
-      if (!host) {
+      if (host && relay && relay.denied.has(host)) {
+        // iDeck refused the code on a tunnel: wait for a new pairing.
+        deviceId = null;
+        lastHealthy = null;
+        state.cable = { status: 'waiting', device: null, message: WRONG_CODE };
+      } else if (!host) {
         deviceId = null;
         state.cable = { status: 'none', device: null,
           message: 'Pair an iPad: open iDeck > Settings > iRelay on the same network.' };
@@ -225,16 +260,23 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
           lastHealthyAt = Date.now();
           deviceId = host;
           names[host] = ideck.name || host;
+          if (ideck.deviceID) settings.setDeviceId(host, String(ideck.deviceID));
           state.devices = state.devices.map((entry) => entry.udid === host ? { ...entry, name: names[host] } : entry);
           state.cable = { status: 'connected', message: `Connected to ${names[host]}`, device: { ...ideck, address: host } };
           if (first) { state.library = null; refreshLibrary(); } else if (!state.library) refreshLibrary();
           relay?.tunnels([{ id: host, code: pairings[host] }]).catch(() => {});
         } else if (failure && /pairing code/i.test(failure.message)) {
           deviceId = null;
+          lastHealthy = null;
           state.cable = { status: 'waiting', device: null,
-            message: 'Wrong pairing code. Enter the code shown in iDeck > Settings > iRelay.' };
+            message: /try again/i.test(failure.message) ? failure.message : WRONG_CODE };
         } else {
           const recovering = lastHealthy === host && Date.now() - lastHealthyAt < RECOVERY_GRACE_MS;
+          if (!recovering && await rediscover(host)) {
+            // Found at its new address; the next poll connects there.
+            syncPairings();
+            setTimeout(() => pollCable(), 0);
+          }
           deviceId = recovering ? host : null;
           state.cable = {
             status: 'waiting', device: null,
@@ -251,7 +293,6 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     // Reclaim keep-alive connections when switching or losing iPads.
     device.closeOtherConnections(deviceId);
     push();
-    cablePollInFlight = false;
   }
 
   let loadingLibrary = false;
@@ -312,22 +353,25 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   ipcMain.handle('refresh', () => refreshLibrary());
   ipcMain.handle('discoverDevices', async () => lan.discover(Object.keys(settings.value.pairings)));
   ipcMain.handle('pairDevice', async (_event, host, code) => {
-    settings.pair(String(host || '').trim(), code);
+    const address = String(host || '').trim();
+    settings.pair(address, code);
+    relay?.allow(address);
     lastHealthy = null;
+    deviceId = null;
     syncPairings();
-    await pollCable();
+    await pollCable({ fresh: true });
     return state.cable;
   });
   ipcMain.handle('unpairDevice', async (_event, host) => {
     settings.unpair(host);
     device.setCode(host, null);
     syncPairings();
-    await pollCable();
+    await pollCable({ fresh: true });
   });
   ipcMain.handle('selectDevice', async (_event, host) => {
     settings.select(host);
     syncPairings();
-    await pollCable();
+    await pollCable({ fresh: true });
   });
   ipcMain.handle('setDownloadAcceleration', (_, enabled) => {
     state.settings = settings.setDownloadAcceleration(enabled);
@@ -567,6 +611,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
       log,
     });
     relay = new Relay(processor, log);
+    relay.onDenied = () => { lastHealthy = null; pollCable(); };
     try { relay.start(); } catch (error) { log(`relay not started: ${error.message}`); }
     // A GitHub token saved by iRelay 2.3-3.2 is no longer used: removed.
     try { fs.unlinkSync(path.join(app.getPath('userData'), 'github-token.bin')); } catch { /* none */ }
