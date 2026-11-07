@@ -348,3 +348,13 @@ button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 3px; }
 .cover-download:focus-visible, .cover-details:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
 .card-title-button { display: block; width: 100%; padding: 0; margin: 4px 0 0; text-align: left; border: 0;
   background: transparent; color: inherit; font: inherit; cursor: pointer; text-align: center; }
+
+.pairing { max-width: 560px; margin: 40px auto; display: grid; gap: 12px; }
+.pairing h2 { margin: 0; font-size: 18px; }
+.pairing h3 { margin: 12px 0 0; font-size: 13px; color: var(--muted); font-weight: 600; }
+.pair-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; }
+.pair-form input { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--card); color: var(--text); font: inherit; }
+.pair-form input:focus { outline: none; border-color: var(--accent); }
+.pair-found { justify-self: start; }
+.pair-row { display: flex; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.pair-row span:first-child { flex: 1; }

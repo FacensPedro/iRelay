@@ -24,7 +24,7 @@ test('setting persists across restarts, validates input and survives failed writ
     const file = path.join(directory, 'settings.json');
     const settings = new Settings(file);
     assert.equal(settings.value.accelerateDownloads, false);
-    assert.deepEqual(settings.setDownloadAcceleration(true), { accelerateDownloads: true });
+    assert.equal(settings.setDownloadAcceleration(true).accelerateDownloads, true);
     assert.equal(new Settings(file).value.accelerateDownloads, true);
     settings.setDownloadAcceleration(false);
     assert.equal(new Settings(file).value.accelerateDownloads, false);
@@ -33,6 +33,15 @@ test('setting persists across restarts, validates input and survives failed writ
     assert.throws(() => settings.setDownloadAcceleration(true), /Could not save settings/);
     assert.equal(settings.value.accelerateDownloads, false);
     assert.equal(new Settings(file).value.accelerateDownloads, false);
+    fs.rmdirSync(`${file}.tmp`);
+    settings.pair('192.168.1.20', 'abcd-efgh');
+    assert.deepEqual(new Settings(file).value.pairings, { '192.168.1.20': 'ABCDEFGH' });
+    assert.equal(new Settings(file).value.selected, '192.168.1.20');
+    assert.throws(() => settings.pair('ipad.local', 'ABCDEFGH'), /iPad address/);
+    assert.throws(() => settings.pair('192.168.1.21', 'ABC1'), /pairing code/);
+    settings.unpair('192.168.1.20');
+    assert.deepEqual(new Settings(file).value.pairings, {});
+    assert.equal(new Settings(file).value.selected, null);
     fs.writeFileSync(file, '{bad json');
     assert.equal(new Settings(file).value.accelerateDownloads, false);
   } finally {

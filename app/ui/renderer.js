@@ -147,6 +147,40 @@ function renderGate() {
   gate.classList.add('hidden');
 }
 
+// MARK: Pairing over the local network
+
+let discovered = null;   // iPads found by the last search, or null
+let searching = false;
+let pairMessage = '';
+
+function pairingPanel() {
+  const paired = state.devices || [];
+  const found = (discovered || []).map((item) => `
+      <button class="secondary pair-found" data-pair-host="${esc(item.host)}">${esc(item.name)} · ${esc(item.host)}</button>`).join('');
+  const list = paired.map((item) => `
+      <div class="pair-row"><span>${esc(item.name)}${item.name !== item.udid ? ` · ${esc(item.udid)}` : ''}</span>
+        ${item.udid === state.selected ? '<span class="note">In use</span>' : `<button class="link" data-use-host="${esc(item.udid)}">Use</button>`}
+        <button class="link" data-unpair-host="${esc(item.udid)}">Remove</button></div>`).join('');
+  return `<div class="pairing">
+    <h2>Connect to iDeck</h2>
+    <p class="note">${esc(state.cable ? state.cable.message : '')}</p>
+    <p class="note">On the iPad, open iDeck › Settings › iRelay. Keep the iPad and this PC on the same network.</p>
+    <div class="pair-form">
+      <input id="pair-host" type="text" placeholder="iPad address (192.168.1.20)" spellcheck="false">
+      <input id="pair-code" type="text" placeholder="Pairing code (ABCD-EFGH)" spellcheck="false" maxlength="9">
+      <button class="primary" id="pair-submit">Pair</button>
+    </div>
+    <div class="bugs-bar"><button class="secondary" id="pair-search" ${searching ? 'disabled' : ''}>${searching ? 'Searching…' : 'Find iPads on this network'}</button></div>
+    ${discovered ? (found || '<p class="note">No iDeck found. Check that iDeck is open and on the same network, or type its address.</p>') : ''}
+    ${pairMessage ? `<p class="note">${esc(pairMessage)}</p>` : ''}
+    ${list ? `<h3>Paired iPads</h3>${list}` : ''}
+  </div>`;
+}
+
+function cleanError(error) {
+  return String(error?.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+}
+
 function emptyState(title, text) {
   return `<div class="empty"><div><h2>${esc(title)}</h2><p>${esc(text)}</p></div></div>`;
 }
@@ -154,7 +188,7 @@ function emptyState(title, text) {
 function renderLibrary() {
   const store = view;
   if (!state.cable || state.cable.status !== 'connected') {
-    setContent(emptyState('Connect a device', state.cable ? state.cable.message : ''));
+    setContent(pairingPanel());
     return;
   }
   const library = state.library && state.library[store];
@@ -334,12 +368,12 @@ function renderLauncher() {
   setContent(`<div class="settings">
     <div class="panel">
       <div class="launcher-heading"><img src="${logo}" alt="" class="launcher-logo">
-        <div><h3>${esc(name)}</h3><p class="note">Transfer the official Windows installer to iDeck over USB.</p></div></div>
+        <div><h3>${esc(name)}</h3><p class="note">Transfer the official Windows installer to iDeck over the local network.</p></div></div>
       <div class="bugs-bar">
         <button class="primary" id="launcher-upload" ${!supported || busy ? 'disabled' : ''}>${busy ? 'Transferring…' : 'Transfer Windows installer'}</button>
         <button class="secondary" id="launcher-official">Official download page</button>
       </div>
-      <p class="note">${!connected ? 'Connect iDeck over USB first.' :
+      <p class="note">${!connected ? 'Connect to iDeck first.' :
         !supported ? 'Update iDeck to a build supporting launcher installer transfers.' :
         'Select a Windows .exe installer downloaded from the publisher.'}</p>
       <p class="note">Once transferred, open iDeck > Settings > Launchers to run the installer through Wine. Installer transfer does not guarantee launcher sign-in, DRM, or game compatibility.</p>
@@ -643,6 +677,33 @@ document.querySelectorAll('#filter button').forEach((button) => {
 $('search').addEventListener('input', (event) => { query = event.target.value.trim().toLowerCase(); render(); });
 $('refresh').addEventListener('click', () => (view.startsWith('bugs-') ? loadBugs(view) : irelay.refresh()));
 $('device-select').addEventListener('change', (event) => irelay.selectDevice(event.target.value));
+$('content').addEventListener('click', async (event) => {
+  const target = event.target.closest('#pair-submit, #pair-search, [data-pair-host], [data-use-host], [data-unpair-host]');
+  if (!target) return;
+  try {
+    if (target.id === 'pair-search') {
+      searching = true; lastGrid = null; render();
+      discovered = await irelay.discoverDevices();
+      pairMessage = '';
+    } else if (target.dataset.pairHost) {
+      $('pair-host').value = target.dataset.pairHost;
+      $('pair-code').focus();
+      return;
+    } else if (target.id === 'pair-submit') {
+      pairMessage = 'Connecting…'; lastGrid = null; render();
+      const result = await irelay.pairDevice($('pair-host').value, $('pair-code').value);
+      pairMessage = result && result.status === 'connected' ? '' : (result?.message || '');
+    } else if (target.dataset.useHost) {
+      await irelay.selectDevice(target.dataset.useHost);
+    } else if (target.dataset.unpairHost) {
+      await irelay.unpairDevice(target.dataset.unpairHost);
+    }
+  } catch (error) {
+    pairMessage = cleanError(error);
+  } finally {
+    searching = false; lastGrid = null; render();
+  }
+});
 $('content').addEventListener('click', async (event) => {
   const control = event.target.closest('[data-control]');
   if (control) {

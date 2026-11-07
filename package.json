@@ -1,7 +1,7 @@
 {
   "name": "irelay",
   "productName": "iRelay",
-  "version": "3.5.18",
+  "version": "3.5.19",
   "description": "Install Steam, GOG and Epic games on a Windows PC and copy them to iDeck over USB.",
   "main": "shell/main.js",
   "author": "FacensPedro",

@@ -2,7 +2,7 @@
 // iRelay's fixed entry point. Only application code bundled with this
 // installed Electron executable may run. Older versions downloaded an ASAR
 // overlay; those overlays are obsolete and must not override updated Node,
-// native DLLs, USB drivers, Electron or shell files. Full upgrades use NSIS.
+// native DLLs, Electron or shell files. Full upgrades use NSIS.
 const { app, dialog } = require('electron');
 const path = require('path');
 const fs = require('original-fs');
@@ -20,29 +20,29 @@ function log(line) {
   } catch { /* nowhere to write */ }
 }
 global.irelayLog = log;
-// USB sockets may close while iPadOS suspends the listener or usbmux
+// Network sockets may close while iPadOS suspends the listener or the network
 // reconnects. These errors are recoverable by the transfer scheduler; never
 // show a blocking "could not start" dialog for one such socket.
-function transientUSB(error) {
+function transientNetwork(error) {
   const code = String(error?.code || '');
   if (['ECONNRESET', 'EPIPE', 'ETIMEDOUT', 'ECONNREFUSED', 'ENOTCONN', 'EREFUSED',
        'ERR_STREAM_PREMATURE_CLOSE'].includes(code)) return true;
-  return /socket hang up|iDeck is not listening|iDeck USB service unavailable|usbmux timeout|usbmux refused|Apple Mobile Device connection closed|USB device disconnected|cable connection closed/i
+  return /socket hang up|iDeck is not listening|device disconnected|connection closed|iDeck did not answer|EHOSTUNREACH|ENETUNREACH/i
     .test(String(error?.message || error));
 }
-const recentUSBWarnings = new Map();
-const USB_WARNING_DEDUP_MS = 30000;
+const recentNetworkWarnings = new Map();
+const NETWORK_WARNING_DEDUP_MS = 30000;
 function fatal(error) {
   const details = (error && error.stack) || String(error);
-  if (transientUSB(error)) {
+  if (transientNetwork(error)) {
     // Do not repeat the same recoverable warning and stack trace for every
-    // concurrent USB socket. Retain one timestamped diagnostic per window.
+    // concurrent socket. Retain one timestamped diagnostic per window.
     const description = String(error?.message || error).split('\n')[0].slice(0, 320);
     const key = String(error?.code || '') + ':' + description;
     const now = Date.now();
-    if (now - (recentUSBWarnings.get(key) || 0) >= USB_WARNING_DEDUP_MS) {
-      log(`USB transport warning (recoverable): ${description}`);
-      recentUSBWarnings.set(key, now);
+    if (now - (recentNetworkWarnings.get(key) || 0) >= NETWORK_WARNING_DEDUP_MS) {
+      log(`Network warning (recoverable): ${description}`);
+      recentNetworkWarnings.set(key, now);
     }
     return;
   }
