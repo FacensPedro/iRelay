@@ -170,7 +170,7 @@ function pairingPanel() {
     <p class="note">On the iPad, open iDeck › Settings › iRelay. Keep the iPad and this PC on the same network.</p>
     <div class="pair-form">
       <input id="pair-host" type="text" placeholder="iPad address (192.168.1.20)" spellcheck="false" value="${esc(pairDraft.host)}">
-      <input id="pair-code" type="text" placeholder="Pairing code (ABCD-EFGH)" spellcheck="false" maxlength="9" value="${esc(pairDraft.code)}">
+      <input id="pair-code" type="text" placeholder="Pairing code (4 digits)" spellcheck="false" maxlength="4" inputmode="numeric" pattern="[0-9]*" value="${esc(pairDraft.code)}">
       <button class="primary" id="pair-submit">Pair</button>
     </div>
     <div class="bugs-bar"><button class="secondary" id="pair-search" ${searching ? 'disabled' : ''}>${searching ? 'Searching…' : 'Find iPads on this network'}</button></div>

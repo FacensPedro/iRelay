@@ -34,11 +34,11 @@ test('setting persists across restarts, validates input and survives failed writ
     assert.equal(settings.value.accelerateDownloads, false);
     assert.equal(new Settings(file).value.accelerateDownloads, false);
     fs.rmdirSync(`${file}.tmp`);
-    settings.pair('192.168.1.20', 'abcd-efgh');
-    assert.deepEqual(new Settings(file).value.pairings, { '192.168.1.20': 'ABCDEFGH' });
+    settings.pair('192.168.1.20', '12 34');
+    assert.deepEqual(new Settings(file).value.pairings, { '192.168.1.20': '1234' });
     assert.equal(new Settings(file).value.selected, '192.168.1.20');
-    assert.throws(() => settings.pair('ipad.local', 'ABCDEFGH'), /iPad address/);
-    assert.throws(() => settings.pair('192.168.1.21', 'ABC1'), /pairing code/);
+    assert.throws(() => settings.pair('ipad.local', '1234'), /iPad address/);
+    assert.throws(() => settings.pair('192.168.1.21', '12A4'), /pairing code/);
     settings.unpair('192.168.1.20');
     assert.deepEqual(new Settings(file).value.pairings, {});
     assert.equal(new Settings(file).value.selected, null);

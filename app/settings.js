@@ -44,7 +44,7 @@ class Settings {
   pair(host, code) {
     const normalized = lan.normalizeCode(code);
     if (!lan.isIPv4(host)) throw new Error('Enter the iPad address shown in iDeck > Settings > iRelay.');
-    if (!normalized) throw new Error('Enter the 8-character pairing code shown in iDeck > Settings > iRelay.');
+    if (!normalized) throw new Error('Enter the 4-digit pairing code shown in iDeck > Settings > iRelay.');
     return this.save({ ...this.value, pairings: { ...this.value.pairings, [host]: normalized }, selected: host });
   }
 
