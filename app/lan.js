@@ -85,10 +85,10 @@ async function discover(extra = []) {
   return found.sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
 
-/// "abcd-efgh" or "ABCDEFGH" to the 8-character code iDeck compares.
+/// The 4-digit code shown in iDeck > Settings > iRelay ("12 34" or "1234").
 function normalizeCode(code) {
-  const value = String(code || '').toUpperCase().replace(/[\s-]/g, '');
-  return /^[A-HJ-NP-Z2-9]{8}$/.test(value) ? value : null;
+  const value = String(code || '').replace(/[\s-]/g, '');
+  return /^[0-9]{4}$/.test(value) ? value : null;
 }
 
 module.exports = { SERVICE_PORT, connect, discover, probe, isIPv4, normalizeCode, localPrefixes };

@@ -44,13 +44,13 @@ test('tunnel refill runs once when polls overlap and each tunnel starts with the
   try {
     const relay = new Relay({ rankServers: async () => [] });
     await Promise.all([
-      relay.tunnels([{ id: '192.168.1.20', code: 'ABCDEFGH' }]),
-      relay.tunnels([{ id: '192.168.1.20', code: 'ABCDEFGH' }]),
-      relay.tunnels([{ id: '192.168.1.20', code: 'ABCDEFGH' }]),
+      relay.tunnels([{ id: '192.168.1.20', code: '1234' }]),
+      relay.tunnels([{ id: '192.168.1.20', code: '1234' }]),
+      relay.tunnels([{ id: '192.168.1.20', code: '1234' }]),
     ]);
     assert.equal(handshakes, 3, '3 idle sockets must not become 9 during repeated polls');
     assert.equal(relay.idle.get('192.168.1.20'), 3);
-    assert.deepEqual(preambles, ['IRELAY ABCDEFGH\n', 'IRELAY ABCDEFGH\n', 'IRELAY ABCDEFGH\n']);
+    assert.deepEqual(preambles, ['IRELAY 1234\n', 'IRELAY 1234\n', 'IRELAY 1234\n']);
   } finally {
     lan.connect = oldConnect;
   }
@@ -66,9 +66,10 @@ test('a single failed iDeck probe keeps the same iPad during bounded recovery', 
 });
 
 test('pairing codes are normalized and only private addresses are scanned', () => {
-  assert.equal(lan.normalizeCode('abcd-efgh'), 'ABCDEFGH');
-  assert.equal(lan.normalizeCode('ABCD EFGH'), 'ABCDEFGH');
-  assert.equal(lan.normalizeCode('ABCD1FGH'), null);
+  assert.equal(lan.normalizeCode('12 34'), '1234');
+  assert.equal(lan.normalizeCode('1234'), '1234');
+  assert.equal(lan.normalizeCode('ABCDEFGH'), null);
+  assert.equal(lan.normalizeCode('12345'), null);
   assert.equal(lan.isIPv4('192.168.0.4'), true);
   assert.equal(lan.isIPv4('ideck.local'), false);
   for (const prefix of lan.localPrefixes()) assert.match(prefix, /^(10|172|192)\./);
