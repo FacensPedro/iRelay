@@ -1,9 +1,8 @@
 'use strict';
 const path = require('path');
 const { app, BrowserWindow, ipcMain, shell, nativeTheme, dialog } = require('electron');
-const usbmux = require('./usbmux');
+const lan = require('./lan');
 const device = require('./device');
-const lockdown = require('./lockdown');
 const fs = require('fs');
 const updater = require('./updater');
 const Relay = require('./relay');
@@ -32,7 +31,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     update: { busy: false, message: '' },
     cache: { busy: false, result: null, error: '' },
     ready: false,
-    cable: { status: 'searching', message: 'Looking for a connected device…', device: null },
+    cable: { status: 'searching', message: 'Looking for a paired iPad…', device: null },
     devices: [],
     selected: null,
     library: null,
@@ -169,107 +168,84 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     push();
   }
 
-  // Devices as iloader finds them: usbmuxd's list, the pair record (Trust)
-  // and lockdownd's name, model and iOS version; then iDeck's own service.
-  const known = new Map(); // usbmux id -> lockdown info
-  const choiceFile = path.join(app.getPath('userData'), 'device.json');
-  let chosen = null;
-  try { chosen = JSON.parse(fs.readFileSync(choiceFile, 'utf8')).udid || null; } catch { /* first start */ }
-  let lastHealthyCable = null;
+  // iPads paired over the local network (settings.pairings, address -> code);
+  // the selected one is used. iDeck can stop answering briefly while it
+  // receives Steam chunks or is under memory pressure, so a working iPad is
+  // kept for a bounded recovery window instead of failing every transfer.
+  const RECOVERY_GRACE_MS = 45000;
+  const names = {};
+  let lastHealthy = null;
   let lastHealthyAt = 0;
-  const CABLE_RECOVERY_GRACE_MS = 45000;
   let lastDeviceProbeAt = 0;
-
   let cablePollInFlight = false;
+
+  function syncPairings() {
+    const { pairings, selected } = settings.value;
+    for (const [host, code] of Object.entries(pairings)) device.setCode(host, code);
+    state.settings = { ...settings.value };
+    state.devices = Object.keys(pairings).map((host) => ({ udid: host, name: names[host] || host, model: host }));
+    state.selected = selected;
+    return { pairings, selected };
+  }
+
   async function pollCable() {
-    // Never overlap Apple Mobile Device Service and usbmux probes.
-    // Fast, non-overlapping retries detect plug/unplug events without
-    // causing connection storms during active transfers.
+    // Never overlap probes: fast, non-overlapping polls notice an iPad that
+    // leaves or joins the network without connection storms during transfers.
     if (cablePollInFlight) return;
     cablePollInFlight = true;
     try {
-      const found = await usbmux.listDevices();
-      const devices = [];
-      for (const entry of found) {
-        // lockdownd answers these values even before Trust; iDeck's service
-        // only once the device trusts this PC.
-        let info = known.get(entry.id);
-        if (!info) {
-          try { info = await lockdown.deviceInfo(entry.id); known.set(entry.id, info); } catch { info = null; }
-        }
+      const { pairings, selected: host } = syncPairings();
+      if (!host) {
+        deviceId = null;
+        state.cable = { status: 'none', device: null,
+          message: 'Pair an iPad: open iDeck > Settings > iRelay on the same network.' };
+      } else {
         let ideck = null;
-        const sameActiveDevice = lastHealthyCable?.id === entry.id &&
-          state.cable.status === 'connected';
-        // USB discovery is fast; avoid an extra /info request every two
-        // seconds while large game chunks use the same USB connection.
+        let failure = null;
+        const sameActiveDevice = lastHealthy === host && state.cable.status === 'connected';
+        // Avoid an extra /info request every two seconds while large game
+        // chunks use the same connections.
         if (sameActiveDevice && Date.now() - lastDeviceProbeAt < 5000) {
           ideck = state.cable.device;
         } else {
-          try { ideck = await device.info(entry.id); } catch { ideck = null; }
+          try { ideck = await device.info(host); } catch (error) { failure = error; }
+          // GET /info needs no code: confirm the pairing code once per connection.
+          if (ideck && !sameActiveDevice) {
+            try { await device.installs(host); } catch (error) { if (/pairing code/i.test(error.message)) { ideck = null; failure = error; } }
+          }
           lastDeviceProbeAt = Date.now();
         }
-        const trusted = !!ideck || await usbmux.hasPairRecord(entry.serial);
-        devices.push({ id: entry.id, udid: entry.serial, trusted, ...(info || { name: 'Device', model: 'Device' }), ideck });
-      }
-      for (const id of [...known.keys()]) if (!found.some((entry) => entry.id === id)) known.delete(id);
-      state.devices = devices.map(({ id, ...rest }) => rest);
-      const current = devices.find((entry) => entry.udid === chosen) || devices.find((entry) => entry.ideck) || devices[0];
-      state.selected = current ? current.udid : null;
-      if (!current) {
-        deviceId = null;
-        state.cable = { status: 'none', message: 'Connect a device with a USB cable.', device: null };
-      } else if (!current.trusted) {
-        deviceId = null;
-        state.cable = { status: 'waiting', message: `Unlock ${current.name === 'Device' ? 'the device' : current.name} and tap Trust.`, device: null };
-      } else if (!current.ideck) {
-        // iDeck can temporarily stop accepting HTTP probes while receiving
-        // Steam chunks or under memory pressure. Do not invalidate the USB
-        // device ID on a single failed probe: this used to fail every active
-        // chunk immediately with "device not connected".
-        const recovering = lastHealthyCable &&
-          current.udid === lastHealthyCable.udid &&
-          current.id === lastHealthyCable.id &&
-          Date.now() - lastHealthyAt < CABLE_RECOVERY_GRACE_MS;
-        deviceId = recovering ? current.id : null;
-        state.cable = {
-          status: 'waiting',
-          message: recovering
-            ? 'iDeck connection interrupted — reconnecting over USB…'
-            : `Open iDeck on ${current.name}.`,
-          device: { name: current.name, model: current.model, iosVersion: current.iosVersion },
-        };
-        if (recovering) relay.tunnels([current]).catch(() => {});
-      } else {
-        const first = deviceId !== current.id;
-        if (state.cable.status === 'waiting' && lastHealthyCable &&
-            lastHealthyCable.id === current.id) log('iDeck USB service responded again');
-        lastHealthyCable = { id: current.id, udid: current.udid };
-        lastHealthyAt = Date.now();
-        deviceId = current.id;
-        state.cable = {
-          status: 'connected', message: `Connected to ${current.name}`,
-          device: { ...current.ideck, name: current.name, model: current.model, iosVersion: current.iosVersion },
-        };
-        if (first) { state.library = null; refreshLibrary(); } else if (!state.library) refreshLibrary();
-        relay.tunnels(devices.filter((entry) => entry.ideck)).catch(() => {});
+        if (ideck) {
+          const first = deviceId !== host;
+          if (state.cable.status === 'waiting' && lastHealthy === host) log('iDeck responded again');
+          lastHealthy = host;
+          lastHealthyAt = Date.now();
+          deviceId = host;
+          names[host] = ideck.name || host;
+          state.devices = state.devices.map((entry) => entry.udid === host ? { ...entry, name: names[host] } : entry);
+          state.cable = { status: 'connected', message: `Connected to ${names[host]}`, device: { ...ideck, address: host } };
+          if (first) { state.library = null; refreshLibrary(); } else if (!state.library) refreshLibrary();
+          relay?.tunnels([{ id: host, code: pairings[host] }]).catch(() => {});
+        } else if (failure && /pairing code/i.test(failure.message)) {
+          deviceId = null;
+          state.cable = { status: 'waiting', device: null,
+            message: 'Wrong pairing code. Enter the code shown in iDeck > Settings > iRelay.' };
+        } else {
+          const recovering = lastHealthy === host && Date.now() - lastHealthyAt < RECOVERY_GRACE_MS;
+          deviceId = recovering ? host : null;
+          state.cable = {
+            status: 'waiting', device: null,
+            message: recovering
+              ? 'iDeck connection interrupted — reconnecting…'
+              : `Open iDeck on ${names[host] || host} and keep it on the same network.`,
+          };
+          if (recovering) relay?.tunnels([{ id: host, code: pairings[host] }]).catch(() => {});
+        }
       }
     } catch (error) {
-      // A temporary Apple Mobile Device Service timeout is not proof that the
-      // iPad was unplugged. Preserve the last working transfer channel for a
-      // bounded recovery window; a real disconnect will expire automatically.
-      const recovering = deviceId != null && lastHealthyCable &&
-        deviceId === lastHealthyCable.id &&
-        Date.now() - lastHealthyAt < CABLE_RECOVERY_GRACE_MS;
-      if (!recovering) deviceId = null;
-      if (!recovering) state.devices = [];
-      state.cable = {
-        status: 'service', device: null,
-        message: recovering
-          ? 'Apple USB service is temporarily unavailable — retrying…'
-          : 'Check Apple Mobile Device Service and reconnect the USB cable.',
-      };
+      log(`device poll: ${error.message}`);
     }
-    // Reclaim keep-alive USB transports when switching or unplugging devices.
+    // Reclaim keep-alive connections when switching or losing iPads.
     device.closeOtherConnections(deviceId);
     push();
     cablePollInFlight = false;
@@ -298,9 +274,28 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
 
   ipcMain.handle('state', () => state);
   ipcMain.handle('refresh', () => refreshLibrary());
+  ipcMain.handle('discoverDevices', async () => lan.discover(Object.keys(settings.value.pairings)));
+  ipcMain.handle('pairDevice', async (_event, host, code) => {
+    settings.pair(String(host || '').trim(), code);
+    lastHealthy = null;
+    syncPairings();
+    await pollCable();
+    return state.cable;
+  });
+  ipcMain.handle('unpairDevice', async (_event, host) => {
+    settings.unpair(host);
+    device.setCode(host, null);
+    syncPairings();
+    await pollCable();
+  });
+  ipcMain.handle('selectDevice', async (_event, host) => {
+    settings.select(host);
+    syncPairings();
+    await pollCable();
+  });
   ipcMain.handle('uploadLauncherInstaller', async (_event, launcher) => {
     if (!Object.hasOwn(launcherTargets, launcher)) throw new Error('Unsupported Windows launcher.');
-    if (!deviceId || state.cable.status !== 'connected') throw new Error('Connect iDeck over USB.');
+    if (!deviceId || state.cable.status !== 'connected') throw new Error('Connect to iDeck first.');
     if (Number(state.cable.device?.protocol || 0) < 4) {
       throw new Error('Update iDeck to support launcher installer transfers.');
     }
@@ -429,7 +424,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     log(`uninstalled from the device: ${request.title || body.appId || body.id || body.appName}${body.dlcId ? ` (DLC ${body.dlcId})` : ''}`);
     await refreshLibrary();
   });
-  // Bugs: iRelay's own log, and iDeck's (read from the device over the cable).
+  // Bugs: iRelay's own log, and iDeck's (read from the device over the network).
   const clearedErrors = new Set();
   ipcMain.handle('irelayBugs', () => {
     let text = '';
@@ -450,11 +445,11 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   });
   // Clear: iRelay's log (this run's lines start again) and iDeck's logs on the device.
   ipcMain.handle('clearIrelayBugs', () => {
-    // Keep evidence while a download or iDeck USB transfer is active.
+    // Keep evidence while a download or iDeck transfer is active.
     const pcBusy = processor && [...processor.jobs.values()].some((job) => !job.finished);
     const deviceBusy = state.installs.some((item) =>
       item.phase !== 'failed' && item.phase !== 'paused' && item.phase !== 'completed' && item.phase !== 'installed');
-    if (pcBusy || deviceBusy) throw new Error('Finish or pause the active download and USB transfer before clearing logs.');
+    if (pcBusy || deviceBusy) throw new Error('Finish or pause the active download and transfer before clearing logs.');
 
     // The log file is emptied; failed downloads iDeck still reports (it keeps
     // them until it restarts) are remembered as cleared, so they stay out.
@@ -464,11 +459,11 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     for (const item of state.installs) if (item.error) clearedErrors.add(`${item.title}: ${item.error}`);
   });
   ipcMain.handle('clearIdeckBugs', async () => {
-    // Keep evidence while a download or iDeck USB transfer is active.
+    // Keep evidence while a download or iDeck transfer is active.
     const pcBusy = processor && [...processor.jobs.values()].some((job) => !job.finished);
     const deviceBusy = state.installs.some((item) =>
       item.phase !== 'failed' && item.phase !== 'paused' && item.phase !== 'completed' && item.phase !== 'installed');
-    if (pcBusy || deviceBusy) throw new Error('Finish or pause the active download and USB transfer before clearing logs.');
+    if (pcBusy || deviceBusy) throw new Error('Finish or pause the active download and transfer before clearing logs.');
     if (!deviceId) throw new Error('Connect a device with iDeck first.');
     await device.clearLogs(deviceId);
   });
@@ -477,7 +472,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     return device.logs(deviceId);
   });
   // Update the full Windows installation (EXE, Electron/Node and resources),
-  // not just the application's ASAR. Never replace files during USB transfers.
+  // not just the application's ASAR. Never replace files during transfers.
   ipcMain.handle('openFolder', (_, which) => {
     const folder = which === 'program' ? path.dirname(process.execPath) : app.getPath('userData');
     return shell.openPath(folder);
@@ -514,7 +509,7 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     // Updating an .asar does not upgrade Electron or its embedded Node.js.
     // Existing 3.5.7 installs can load the updated app code in an Electron 31
-    // executable; require a new Windows installer before USB transfers begin.
+    // executable; require a new Windows installer before transfers begin.
     const electronMajor = Number(process.versions.electron?.split('.')[0] || 0);
     const nodeMajor = Number(process.versions.node.split('.')[0]);
     if (electronMajor < 42 || nodeMajor < 24) {

@@ -1,27 +1,28 @@
 'use strict';
-// iDeck's service on the iPad (port 27093), reached through usbmux. One HTTP
-// request per connection (Connection: close).
+// iDeck's service on the iPad (port 27093) over the local network. A device
+// is its IPv4 address; every request carries that iPad's pairing code.
 const fs = require('fs');
-const usbmux = require('./usbmux');
+const lan = require('./lan');
 
-const SERVICE_PORT = 27093;
+const SERVICE_PORT = lan.SERVICE_PORT;
+const codes = new Map(); // host -> pairing code
 
 
 const http = require('http');
 // Cap device-side writes while iOS handles memory pressure and SHA-1 checks.
 // Avoid four simultaneous decompressed uploads on an iPad already doing
 // file allocation, SHA-1 verification and a large Steam install.
-// Bandwidth is still unrestricted; only outstanding USB writes are bounded.
+// Bandwidth is still unrestricted; only outstanding device writes are bounded.
 const MAX_DEVICE_SOCKETS = 2;
-const USB_RECOVERY_COOLDOWN_MS = 60000;
-const USB_RAMP_SUCCESS_COUNT = 32;
+const RECOVERY_COOLDOWN_MS = 60000;
+const RAMP_SUCCESS_COUNT = 32;
 const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 const agents = new Map();
 const gates = new Map();
 
-// Agent sockets are opened asynchronously by usbmux. Node's socket counter
-// cannot include a socket until the connect callback runs, so use an explicit
-// request gate to cap concurrent USB connections even during their handshakes.
+// Agent sockets are opened asynchronously. Node's socket counter cannot
+// include a socket until the connect callback runs, so use an explicit request
+// gate to cap concurrent connections even during their handshakes.
 function gateFor(deviceId) {
   let gate = gates.get(deviceId);
   if (!gate) {
@@ -51,16 +52,16 @@ function acquire(deviceId) {
   });
 }
 
-function isTransientUSB(error) {
+function isTransient(error) {
   const code = String(error?.code || '');
   if (['ECONNRESET', 'EPIPE', 'ETIMEDOUT', 'ECONNREFUSED', 'ENOTCONN', 'EREFUSED',
        'ERR_STREAM_PREMATURE_CLOSE'].includes(code)) return true;
-  return /socket hang up|iDeck is not listening|iDeck USB service unavailable|usbmux|Apple Mobile Device|USB device disconnected|cable connection closed|iDeck did not answer|cable connection closed/i
+  return /socket hang up|iDeck is not listening|device disconnected|connection closed|iDeck did not answer|EHOSTUNREACH|ENETUNREACH/i
     .test(String(error?.message || error));
 }
 
 function noteFailure(deviceId, error) {
-  if (!isTransientUSB(error)) return;
+  if (!isTransient(error)) return;
   const gate = gateFor(deviceId);
   gate.limit = 1;
   gate.lastFailure = Date.now();
@@ -70,18 +71,17 @@ function noteFailure(deviceId, error) {
 function noteSuccess(deviceId) {
   const gate = gateFor(deviceId);
   if (gate.limit === MAX_DEVICE_SOCKETS ||
-      Date.now() - gate.lastFailure < USB_RECOVERY_COOLDOWN_MS) return;
+      Date.now() - gate.lastFailure < RECOVERY_COOLDOWN_MS) return;
   gate.successful += 1;
-  if (gate.successful >= USB_RAMP_SUCCESS_COUNT) {
+  if (gate.successful >= RAMP_SUCCESS_COUNT) {
     gate.limit = Math.min(MAX_DEVICE_SOCKETS, gate.limit + 1);
     gate.successful = 0;
     drain(gate);
   }
 }
 
-// Reuse a bounded set of trusted usbmux sockets. iDeck's service already
-// supports HTTP/1.1 keep-alive, so there is no need to pair/connect the USB
-// transport for every Steam chunk. The native HTTP client applies backpressure.
+// Reuse a bounded set of keep-alive sockets: no new connection for every Steam
+// chunk. The native HTTP client applies backpressure.
 function agentFor(deviceId) {
   let agent = agents.get(deviceId);
   if (!agent) {
@@ -93,7 +93,7 @@ function agentFor(deviceId) {
       scheduling: 'lifo',
     });
     agent.createConnection = (_options, callback) => {
-      usbmux.connect(deviceId, SERVICE_PORT).then(
+      lan.connect(deviceId, SERVICE_PORT).then(
         (socket) => callback(null, socket),
         (error) => callback(error)
       );
@@ -106,7 +106,7 @@ function agentFor(deviceId) {
 function closeOtherConnections(activeDeviceId) {
   for (const [id, gate] of gates) {
     if (id === activeDeviceId) continue;
-    for (const waiting of gate.pending) waiting.reject(new Error('USB device disconnected'));
+    for (const waiting of gate.pending) waiting.reject(new Error('device disconnected'));
     gate.pending.length = 0;
     gates.delete(id);
   }
@@ -144,7 +144,7 @@ async function request(deviceId, method, path, { json, file, size, data, timeout
       }
     };
     const req = http.request({
-      hostname: 'ideck',
+      hostname: deviceId,
       port: SERVICE_PORT,
       method, path,
       agent: agentFor(deviceId),
@@ -152,6 +152,7 @@ async function request(deviceId, method, path, { json, file, size, data, timeout
         'Content-Length': length,
         'Content-Type': json !== undefined ? 'application/json' : 'application/octet-stream',
         Connection: 'keep-alive',
+        'X-iDeck-Code': codes.get(deviceId) || '',
       },
     }, (res) => {
       const chunks = [];
@@ -165,7 +166,7 @@ async function request(deviceId, method, path, { json, file, size, data, timeout
         chunks.push(chunk);
       });
       res.once('error', (error) => finish(error));
-      res.once('aborted', () => finish(new Error('The cable connection closed during the response')));
+      res.once('aborted', () => finish(new Error('The connection closed during the response')));
       res.once('end', () => {
         let parsed = {};
         try {
@@ -179,10 +180,10 @@ async function request(deviceId, method, path, { json, file, size, data, timeout
     const timer = setTimeout(() => req.destroy(new Error('iDeck did not answer in time')), timeout);
     req.once('error', (error) => finish(error));
     req.once('close', () => {
-      if (!completed) finish(new Error('The cable connection closed'));
+      if (!completed) finish(new Error('The connection closed'));
     });
     if (file) {
-      // Stream directly to the USB socket using HTTP backpressure; there is
+      // Stream directly to the socket using HTTP backpressure; there is
       // no multi-megabyte buffer or per-chunk Buffer.concat in JavaScript.
       const stream = fs.createReadStream(file, { highWaterMark: 256 * 1024 });
       stream.once('error', (error) => req.destroy(error));
@@ -208,6 +209,7 @@ function query(params) {
 
 module.exports = {
   closeOtherConnections,
+  setCode: (host, code) => { if (code) codes.set(host, code); else codes.delete(host); },
   info: (id) => request(id, 'GET', '/info', { timeout: 8000 }),
   install: (id, body) => request(id, 'POST', '/install', { json: body, timeout: 60000 }),
   installs: (id) => request(id, 'GET', '/installs', { timeout: 10000 }),

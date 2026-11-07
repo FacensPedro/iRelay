@@ -1,8 +1,8 @@
 'use strict';
-// The HTTP server iDeck reaches over the trusted USB cable. The Windows
-// host no longer exposes its download control endpoints on loopback TCP:
-// incoming usbmux sockets are handed directly to Node's HTTP parser.
-// iRelay opens connections to iDeck's USB port 27091.
+// The HTTP server iDeck reaches over the local network. Nothing listens on
+// this PC: iRelay opens connections to iDeck's port 27091, starting each with
+// "IRELAY <pairing code>\n", and hands them to Node's HTTP parser once iDeck
+// sends a request on one.
 //
 //   GET    /ping            name and version
 //   POST   /process         a Steam download for this PC to process (process.js)
@@ -10,10 +10,10 @@
 //   DELETE /process/<id>    cancel
 const http = require('http');
 const os = require('os');
-const usbmux = require('./usbmux');
+const lan = require('./lan');
 
 const DEVICE_PORT = 27091;
-// Three idle tunnels are enough for control messages. More idle USB sockets
+// Three idle tunnels are enough for control messages. More idle sockets
 // increase pressure on iDeck during a long transfer without improving throughput.
 const IDLE = 3;
 const MAX_RANK_REQUEST_BYTES = 16 * 1024;
@@ -50,8 +50,8 @@ class Relay {
     this.server.requestTimeout = 120000;
     this.server.keepAliveTimeout = 15000;
     this.server.on('error', (error) => this.log(`relay server: ${error.message}`));
-    // Intentionally never listen() on a TCP port: only handed-off USB sockets
-    // can reach /process, /servers/rank and the transfer control endpoints.
+    // Intentionally never listen() on a TCP port: only the authenticated
+    // connections to iDeck can reach /process, /servers/rank and the controls.
   }
 
   async handle(req, res) {
@@ -98,8 +98,9 @@ class Relay {
     return json(404, { error: 'not found' });
   }
 
-  /// Keeps a small number of cable connections available without starting
-  /// overlapping usbmux connection bursts on successive 2-second polls.
+  /// Keeps a small number of connections to iDeck available without starting
+  /// overlapping connection bursts on successive 2-second polls. `devices`:
+  /// [{ id: <iPad address>, code: <pairing code> }].
   async tunnels(devices) {
     if (this.filling) return this.filling;
     this.filling = this.refill(devices);
@@ -112,8 +113,9 @@ class Relay {
       let idle = this.idle.get(device.id) || 0;
       while (idle < IDLE) {
         let socket;
-        try { socket = await usbmux.connect(device.id, DEVICE_PORT); }
-        catch { break; } // iDeck may be restarting or the USB port may be busy.
+        try { socket = await lan.connect(device.id, DEVICE_PORT); }
+        catch { break; } // iDeck may be restarting or off the network.
+        socket.write(`IRELAY ${device.code || ''}\n`);
         idle += 1;
         this.idle.set(device.id, idle);
         this.serve(device.id, socket);

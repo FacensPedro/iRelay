@@ -48,7 +48,7 @@ function workerSource() {
 }
 
 /// A job iDeck has not asked about for this long is stopped.
-// Give iDeck time to recover from temporary USB interruptions without
+// Give iDeck time to recover from temporary network interruptions without
 // discarding all the verified PC chunks. iDeck also retries job polling.
 const ABANDON_MS = 90000;
 const USB_WRITE_RETRY_WINDOW_MS = 90000;
@@ -160,10 +160,10 @@ class Processor {
       const pump = () => {
         if (Date.now() - job.polled > ABANDON_MS && !job.cancelled) {
           job.cancelled = true;
-          this.log(`processing ${job.name} stopped: no status polls from iDeck for ${ABANDON_MS / 1000}s (possible iDeck restart, suspension or USB interruption)`);
+          this.log(`processing ${job.name} stopped: no status polls from iDeck for ${ABANDON_MS / 1000}s (possible iDeck restart, suspension or network interruption)`);
         }
         // Keep fetching, decoding and writing concurrently, but reduce the
-        // number of buffered PC chunks when device-side USB writes stall.
+        // number of buffered PC chunks when device-side writes stall.
         // Normal bandwidth is never artificially rate-limited.
         const currentLimit = job.usbCongested ? Math.min(4, this.concurrency) : this.concurrency;
         while (next < queue.length && !job.cancelled && active < currentLimit) {
@@ -216,7 +216,7 @@ class Processor {
       if (!job.usbCongested && (failed || job.usbSlowStreak >= 4)) {
         job.usbCongested = true;
         job.usbCongestionEvents = (job.usbCongestionEvents || 0) + 1;
-        this.log(`USB delivery congested for ${job.name}; reducing buffered Steam chunks`);
+        this.log(`iDeck delivery congested for ${job.name}; reducing buffered Steam chunks`);
       }
     } else {
       job.usbSlowStreak = 0;
@@ -225,7 +225,7 @@ class Processor {
         if (job.usbHealthyStreak >= 16) {
           job.usbCongested = false;
           job.usbHealthyStreak = 0;
-          this.log(`USB delivery recovered for ${job.name}; restoring normal pipeline`);
+          this.log(`iDeck delivery recovered for ${job.name}; restoring normal pipeline`);
         }
       }
     }
@@ -238,7 +238,7 @@ class Processor {
     job.networkBytes = (job.networkBytes || 0) + raw.length;
     if (job.cancelled) throw new Error('Transfer stopped');
     const data = await this.pool.decode({ raw, key: depot.key, size: chunk.size, crc: chunk.crc, sha: chunk.sha });
-    // Keep the already-verified chunk in memory while the iPad's USB service
+    // Keep the already-verified chunk in memory while the iPad service
     // restarts. Limit the retry window and back off to prevent connect storms.
     const deadline = Date.now() + USB_WRITE_RETRY_WINDOW_MS;
     for (let attempt = 1; ; attempt += 1) {
@@ -250,7 +250,7 @@ class Processor {
         this.noteUSBDelivery(job, Date.now() - writeStarted);
         if (job.usbFailureLogged && !job.usbRecoveryLogged) {
           job.usbRecoveryLogged = true;
-          this.log(`USB transfer resumed for ${job.name}`);
+          this.log(`Transfer to iDeck resumed for ${job.name}`);
         }
         return;
       } catch (error) {
@@ -264,7 +264,7 @@ class Processor {
             Date.now() >= deadline) throw error;
         if (!job.usbFailureLogged) {
           job.usbFailureLogged = true;
-          this.log(`USB interrupted while transferring ${job.name}; waiting for reconnection`);
+          this.log(`Connection interrupted while transferring ${job.name}; waiting for reconnection`);
         }
         await new Promise((resolve) =>
           setTimeout(resolve, Math.min(4000, 500 * Math.min(attempt, 8))));

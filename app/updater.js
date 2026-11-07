@@ -49,7 +49,7 @@ async function latestRelease() {
 }
 
 // Only inspect version at startup: do not download or install a whole EXE
-// while the user has an active USB transfer or has not approved an installer.
+// while the user has an active transfer or has not approved an installer.
 async function check(current, status) {
   status('Checking for updates…');
   const release = await latestRelease();

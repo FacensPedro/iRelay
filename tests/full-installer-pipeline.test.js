@@ -34,7 +34,7 @@ test('the updater stages a verified full installer, not only an ASAR', () => {
   assert.match(workflow, /"dist\/iRelay-\$VERSION-win-x64\.zip\.sha256"/);
 });
 
-test('congested USB backs down decoded chunk buffering and restores full concurrency', () => {
+test('congested delivery backs down decoded chunk buffering and restores full concurrency', () => {
   const notices = [];
   const proc = new Processor({ write: async () => {}, onChange() {}, log: (line) => notices.push(line) });
   const job = {
@@ -46,8 +46,8 @@ test('congested USB backs down decoded chunk buffering and restores full concurr
   assert.equal(job.usbCongestionEvents, 1);
   for (let n = 0; n < 16; n += 1) proc.noteUSBDelivery(job, 100);
   assert.equal(job.usbCongested, false);
-  assert.ok(notices.some((line) => /USB delivery congested/.test(line)));
-  assert.ok(notices.some((line) => /USB delivery recovered/.test(line)));
+  assert.ok(notices.some((line) => /iDeck delivery congested/.test(line)));
+  assert.ok(notices.some((line) => /iDeck delivery recovered/.test(line)));
   proc.noteUSBDelivery(job, 0, true);
   assert.equal(job.usbCongested, true);
   assert.equal(job.usbCongestionEvents, 2);
