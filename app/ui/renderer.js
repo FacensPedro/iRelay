@@ -151,6 +151,10 @@ function renderGate() {
 let discovered = null;   // iPads found by the last search, or null
 let searching = false;
 let pairMessage = '';
+// What is typed in the pairing form. The panel is rebuilt on every state
+// update (each poll), so the fields are drawn from here, never read back
+// from a field that a rebuild may have just emptied.
+const pairDraft = { host: '', code: '' };
 
 function pairingPanel() {
   const paired = state.devices || [];
@@ -165,8 +169,8 @@ function pairingPanel() {
     <p class="note">${esc(state.cable ? state.cable.message : '')}</p>
     <p class="note">On the iPad, open iDeck › Settings › iRelay. Keep the iPad and this PC on the same network.</p>
     <div class="pair-form">
-      <input id="pair-host" type="text" placeholder="iPad address (192.168.1.20)" spellcheck="false">
-      <input id="pair-code" type="text" placeholder="Pairing code (ABCD-EFGH)" spellcheck="false" maxlength="9">
+      <input id="pair-host" type="text" placeholder="iPad address (192.168.1.20)" spellcheck="false" value="${esc(pairDraft.host)}">
+      <input id="pair-code" type="text" placeholder="Pairing code (ABCD-EFGH)" spellcheck="false" maxlength="9" value="${esc(pairDraft.code)}">
       <button class="primary" id="pair-submit">Pair</button>
     </div>
     <div class="bugs-bar"><button class="secondary" id="pair-search" ${searching ? 'disabled' : ''}>${searching ? 'Searching…' : 'Find iPads on this network'}</button></div>
@@ -235,7 +239,15 @@ function renderLibrary() {
 function setContent(html) {
   if (html === lastGrid) return;
   lastGrid = html;
+  // Keep the caret in the field being typed in across the rebuild.
+  const active = document.activeElement;
+  const focusId = active && active.id && $('content').contains(active) ? active.id : null;
+  const caret = focusId && typeof active.selectionStart === 'number' ? [active.selectionStart, active.selectionEnd] : null;
   $('content').innerHTML = html;
+  if (focusId && $(focusId)) {
+    $(focusId).focus();
+    if (caret) try { $(focusId).setSelectionRange(caret[0], caret[1]); } catch { /* not a text field */ }
+  }
   $('content').querySelectorAll('.cover img, .transfer-cover img').forEach((img) => {
     img.addEventListener('error', () => img.remove());
   });
@@ -647,6 +659,13 @@ document.querySelectorAll('#filter button').forEach((button) => {
 $('search').addEventListener('input', (event) => { query = event.target.value.trim().toLowerCase(); render(); });
 $('refresh').addEventListener('click', () => (view.startsWith('bugs-') ? loadBugs(view) : irelay.refresh()));
 $('device-select').addEventListener('change', (event) => irelay.selectDevice(event.target.value));
+$('content').addEventListener('input', (event) => {
+  if (event.target.id === 'pair-host') pairDraft.host = event.target.value;
+  if (event.target.id === 'pair-code') pairDraft.code = event.target.value;
+});
+$('content').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && (event.target.id === 'pair-host' || event.target.id === 'pair-code')) $('pair-submit')?.click();
+});
 $('content').addEventListener('click', async (event) => {
   const target = event.target.closest('#pair-submit, #pair-search, [data-pair-host], [data-use-host], [data-unpair-host]');
   if (!target) return;
@@ -656,13 +675,17 @@ $('content').addEventListener('click', async (event) => {
       discovered = await irelay.discoverDevices();
       pairMessage = '';
     } else if (target.dataset.pairHost) {
-      $('pair-host').value = target.dataset.pairHost;
+      pairDraft.host = target.dataset.pairHost;
+      $('pair-host').value = pairDraft.host;
       $('pair-code').focus();
       return;
     } else if (target.id === 'pair-submit') {
+      const host = pairDraft.host.trim();
+      const code = pairDraft.code.trim();
       pairMessage = 'Connecting…'; lastGrid = null; render();
-      const result = await irelay.pairDevice($('pair-host').value, $('pair-code').value);
-      pairMessage = result && result.status === 'connected' ? '' : (result?.message || '');
+      const result = await irelay.pairDevice(host, code);
+      if (result && result.status === 'connected') { pairMessage = ''; pairDraft.code = ''; }
+      else pairMessage = result?.message || '';
     } else if (target.dataset.useHost) {
       await irelay.selectDevice(target.dataset.useHost);
     } else if (target.dataset.unpairHost) {

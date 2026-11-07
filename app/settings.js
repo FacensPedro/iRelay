@@ -8,12 +8,15 @@ const lan = require('./lan');
 class Settings {
   constructor(file) {
     this.file = file;
-    this.value = { accelerateDownloads: false, pairings: {}, selected: null };
+    this.value = { accelerateDownloads: false, pairings: {}, deviceIds: {}, selected: null };
     try {
       const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
       this.value.accelerateDownloads = saved.accelerateDownloads === true;
       for (const [host, code] of Object.entries(saved.pairings || {})) {
         if (lan.isIPv4(host) && lan.normalizeCode(code)) this.value.pairings[host] = lan.normalizeCode(code);
+      }
+      for (const [host, id] of Object.entries(saved.deviceIds || {})) {
+        if (Object.hasOwn(this.value.pairings, host) && typeof id === 'string' && id) this.value.deviceIds[host] = id;
       }
       if (Object.hasOwn(this.value.pairings, saved.selected)) this.value.selected = saved.selected;
     } catch { /* Defaults on first start or an unreadable settings file. */ }
@@ -47,9 +50,32 @@ class Settings {
 
   unpair(host) {
     const pairings = { ...this.value.pairings };
+    const deviceIds = { ...(this.value.deviceIds || {}) };
     delete pairings[host];
+    delete deviceIds[host];
     const selected = this.value.selected === host ? (Object.keys(pairings)[0] || null) : this.value.selected;
-    return this.save({ ...this.value, pairings, selected });
+    return this.save({ ...this.value, pairings, deviceIds, selected });
+  }
+
+  /// Remembers the identifier iDeck reports for a paired address.
+  setDeviceId(host, id) {
+    if (!Object.hasOwn(this.value.pairings, host) || typeof id !== 'string' || !id) return { ...this.value };
+    if ((this.value.deviceIds || {})[host] === id) return { ...this.value };
+    return this.save({ ...this.value, deviceIds: { ...(this.value.deviceIds || {}), [host]: id } });
+  }
+
+  /// The paired iPad now answers at another address (a new DHCP lease):
+  /// moves its pairing code and identifier there.
+  move(from, to) {
+    if (!Object.hasOwn(this.value.pairings, from) || !lan.isIPv4(to) || from === to) return { ...this.value };
+    const pairings = { ...this.value.pairings };
+    const deviceIds = { ...(this.value.deviceIds || {}) };
+    pairings[to] = pairings[from];
+    if (deviceIds[from]) deviceIds[to] = deviceIds[from];
+    delete pairings[from];
+    delete deviceIds[from];
+    const selected = this.value.selected === from ? to : this.value.selected;
+    return this.save({ ...this.value, pairings, deviceIds, selected });
   }
 
   select(host) {

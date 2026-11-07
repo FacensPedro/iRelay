@@ -39,7 +39,14 @@ class Relay {
     this.processor = processor;
     this.log = log || (() => {});
     this.idle = new Map();
+    // iPads that refused the pairing code on a tunnel ("IRELAY-DENIED\n").
+    // No tunnel is opened to them again until they are paired again: every
+    // refusal counts toward iDeck's one-minute lockout of this PC.
+    this.denied = new Set();
+    this.onDenied = null;
   }
+
+  allow(deviceId) { this.denied.delete(deviceId); }
 
   start() {
     this.server = http.createServer((req, res) => this.handle(req, res).catch((error) => {
@@ -110,11 +117,13 @@ class Relay {
 
   async refill(devices) {
     for (const device of devices) {
+      if (this.denied.has(device.id)) continue;
       let idle = this.idle.get(device.id) || 0;
       while (idle < IDLE) {
         let socket;
         try { socket = await lan.connect(device.id, DEVICE_PORT); }
         catch { break; } // iDeck may be restarting or off the network.
+        if (this.denied.has(device.id)) { socket.destroy(); break; }
         socket.write(`IRELAY ${device.code || ''}\n`);
         idle += 1;
         this.idle.set(device.id, idle);
@@ -135,6 +144,15 @@ class Relay {
     };
     socket.once('data', (first) => {
       release();
+      if (first.toString('latin1').startsWith('IRELAY-DENIED')) {
+        socket.destroy();
+        if (!this.denied.has(deviceId)) {
+          this.denied.add(deviceId);
+          this.log(`iDeck at ${deviceId} refused the pairing code`);
+          if (this.onDenied) this.onDenied(deviceId);
+        }
+        return;
+      }
       socket.pause();
       if (!this.server) { socket.destroy(); return; }
       socket.unshift(first);
