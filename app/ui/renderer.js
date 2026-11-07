@@ -1,7 +1,7 @@
 'use strict';
 /* global irelay */
 
-const TITLES = { steam: 'Steam', epic: 'Epic Games', gog: 'GOG', ea: 'EA app', ubisoft: 'Ubisoft Connect', tasks: 'Transfers', settings: 'Settings', about: 'About', 'bugs-irelay': 'iRelay bugs', 'bugs-ideck': 'iDeck bugs' };
+const TITLES = { steam: 'Steam', epic: 'Epic Games', gog: 'GOG', ea: 'EA app', tasks: 'Transfers', settings: 'Settings', about: 'About', 'bugs-irelay': 'iRelay bugs', 'bugs-ideck': 'iDeck bugs' };
 let bugs = { 'bugs-irelay': null, 'bugs-ideck': null };
 let bugAction = { kind: '', confirm: false, busy: false, notice: '', failed: false };
 let state = null;
@@ -82,14 +82,14 @@ function render() {
   $('version').textContent = `v${state.version}`;
   renderDevice();
   renderGate();
-  for (const store of ['steam', 'epic', 'gog', 'ea', 'ubisoft']) {
+  for (const store of ['steam', 'epic', 'gog', 'ea']) {
     const count = games(store).length;
     $(`count-${store}`).textContent = count ? count : '';
   }
   const active = (state.installs || []).filter((item) => !item.error).length + (state.jobs || []).filter((job) => !job.finished).length;
   $('count-tasks').textContent = active ? active : '';
   $('view-title').textContent = TITLES[view];
-  const library = ['steam', 'epic', 'gog', 'ea', 'ubisoft'].includes(view);
+  const library = ['steam', 'epic', 'gog', 'ea'].includes(view);
   $('filter').style.visibility = library ? 'visible' : 'hidden';
   $('search').style.visibility = library ? 'visible' : 'hidden';
   $('refresh').style.visibility = library || view.startsWith('bugs-') ? 'visible' : 'hidden';
@@ -203,21 +203,15 @@ function renderLibrary() {
     setContent(emptyState(`Sign in to ${TITLES[store]} in iDeck`, `iRelay shows the ${TITLES[store]} library iDeck is signed in to. Sign in from iDeck’s Settings, then reload.`));
     return;
   }
-  // Ubisoft: games Ubisoft Connect installed on this PC, copied to iDeck and
-  // started there directly (through Ubisoft Connect when iDeck has it).
-  const ubisoftNote = store === 'ubisoft'
-    ? `<p class="note library-note">Games installed by Ubisoft Connect on this PC. Install on device copies the game to iDeck, where it starts directly.</p>`
-    : '';
   let list = games(store);
   if (filter === 'pc') list = list.filter((game) => game.download);
   if (filter === 'ipad') list = list.filter((game) => game.onIPad);
   if (query) list = list.filter((game) => game.title.toLowerCase().includes(query));
   if (!list.length) {
-    setContent(ubisoftNote + emptyState('Nothing here', query ? 'No game matches your search.'
-      : store === 'ubisoft' ? 'No Ubisoft Connect games are installed on this PC.' : 'No games in this view.'));
+    setContent(emptyState('Nothing here', query ? 'No game matches your search.' : 'No games in this view.'));
     return;
   }
-  const html = ubisoftNote + `<div class="grid">${list.map((game) => {
+  const html = `<div class="grid">${list.map((game) => {
     const meta = [
       game.download ? `<span class="busy">${game.download.phase === 'paused' ? 'Paused' : 'Installing'} ${percent(game.download)}%</span>` : '',
       game.onIPad && !game.download ? '<span class="ipad">Device</span>' : '',
@@ -597,7 +591,6 @@ function request(game) {
   if (game.store === 'steam') return { store: 'steam', appId: game.id, title: game.title };
   if (game.store === 'epic') return { store: 'epic', appName: game.id, title: game.title, namespace: game.raw.namespace, catalogItemId: game.raw.catalogItemId };
   if (game.store === 'ea') return { store: 'ea', id: game.id, title: game.title };
-  if (game.store === 'ubisoft') return { store: 'ubisoft', id: game.id, title: game.title };
   return { store: 'gog', id: game.id, title: game.title };
 }
 
