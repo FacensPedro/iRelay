@@ -9,7 +9,6 @@ const Relay = require('./relay');
 const Processor = require('./process');
 const Settings = require('./settings');
 const { clearUnusedCache } = require('./cache');
-const ubisoft = require('./ubisoft');
 const settings = new Settings(path.join(app.getPath('userData'), 'settings.json'));
 
 const VERSION = (global.irelay && global.irelay.version) || app.getVersion();
@@ -154,16 +153,13 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     }
   }
 
-  // Ubisoft games this PC copies to iDeck (ubisoft.js), shown with iDeck's own installs.
-  const pcCopies = new Map(); // id -> { store, id, title, phase, done, total, error, cancelled }
-  const copyItems = () => [...pcCopies.values()].map(({ cancelled, ...item }) => item);
 
   async function pollInstalls() {
     if (processor) state.jobs = processor.list();
-    if (!deviceId) { state.installs = copyItems(); push(); return; }
+    if (!deviceId) { state.installs = []; push(); return; }
     try {
       const wasActive = state.installs.some((item) => item.phase !== 'failed' && item.phase !== 'paused');
-      state.installs = [...((await device.installs(deviceId)).installs || []), ...copyItems()];
+      state.installs = (await device.installs(deviceId)).installs || [];
       // A download just ended: the library shows it installed.
       if (wasActive && !state.installs.some((item) => item.phase !== 'failed' && item.phase !== 'paused')) await refreshLibrary();
       if (Object.keys(state.dlcQueue).length) await runDLCQueue();
@@ -301,7 +297,6 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     loadingLibrary = true;
     try {
       const library = await device.library(deviceId);
-      library.ubisoft = await ubisoftLibrary(library.ubisoft);
       state.library = library;
       state.libraryError = null;
     } catch (error) {
@@ -309,37 +304,6 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     }
     loadingLibrary = false;
     push();
-  }
-
-  /// Games Ubisoft Connect installed on this PC, marked when iDeck already has them.
-  async function ubisoftLibrary(device) {
-    const onDevice = new Map(((device && device.games) || []).map((game) => [String(game.id), game]));
-    const pc = await ubisoft.installedOnPC().catch(() => []);
-    const games = pc.map((game) => ({ id: game.id, title: game.title, cover: '', installed: onDevice.has(game.id),
-      size: onDevice.get(game.id)?.size || 0, pc: true }));
-    for (const [id, game] of onDevice) if (!pc.some((item) => item.id === id)) games.push({ ...game, pc: false });
-    return { signedIn: true, clientInstalled: !!(device && device.clientInstalled), games };
-  }
-
-  async function copyUbisoft(id) {
-    const game = (await ubisoft.installedOnPC()).find((item) => item.id === String(id));
-    if (!game) throw new Error('This game is not installed by Ubisoft Connect on this PC.');
-    if (pcCopies.get(game.id)?.phase === 'copying') throw new Error('This game is already being copied.');
-    const item = { store: 'ubisoft', id: game.id, title: game.title, phase: 'copying', done: 0, total: 1, error: '', cancelled: false };
-    pcCopies.set(game.id, item);
-    log(`ubisoft copy started: ${game.title}`);
-    ubisoft.copyToDevice(device, deviceId, game, {
-      progress: ({ done, total }) => { item.done = done; item.total = total || 1; },
-      cancelled: () => item.cancelled,
-    }).then(async (result) => {
-      pcCopies.delete(game.id);
-      log(`ubisoft copy finished: ${game.title} (${result.files} files, ${result.total} bytes)`);
-      await refreshLibrary();
-    }).catch((error) => {
-      item.phase = 'failed';
-      item.error = error.message;
-      log(`ubisoft copy failed: ${game.title}: ${error.message}`);
-    }).finally(() => pollInstalls());
   }
 
   function every(ms, fn) {
@@ -421,7 +385,6 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
       if (request.dlcId) body.dlcId = Number(request.dlcId);
     } else if (request.store === 'gog') body.id = Number(request.id);
     else if (request.store === 'ea') body.id = String(request.id || '');
-    else if (request.store === 'ubisoft') { await copyUbisoft(request.id); return; }
     else body.appName = request.appName;
     await device.install(deviceId, body);
     log(`install started on the device: ${request.title || body.appId || body.id || body.appName}`);
@@ -438,15 +401,9 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
       throw new Error('Update iDeck to a version that supports download controls.');
     }
     const { store, action } = control || {};
-    if (!['steam', 'epic', 'gog', 'ea', 'ubisoft'].includes(store) ||
+    if (!['steam', 'epic', 'gog', 'ea'].includes(store) ||
         !['pause', 'resume', 'stop'].includes(action)) {
       throw new Error('Invalid download control.');
-    }
-    if (store === 'ubisoft') {
-      const copy = pcCopies.get(String(control.id));
-      if (copy && action === 'stop') { copy.cancelled = true; pcCopies.delete(String(control.id)); }
-      await pollInstalls();
-      return;
     }
     const textID = store === 'epic' || store === 'ea';
     const id = textID ? String(control.id || '') : Number(control.id);

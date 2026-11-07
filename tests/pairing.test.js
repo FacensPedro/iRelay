@@ -73,10 +73,7 @@ test('a tunnel refused by iDeck stops further tunnels until paired again', async
   }
 });
 
-test('Ubisoft copies upload several files at once', () => {
-  const ubisoft = fs.readFileSync(path.join(root, 'app/ubisoft.js'), 'utf8');
-  assert.match(ubisoft, /const PARALLEL_UPLOADS = 4;/);
-  assert.match(ubisoft, /Promise\.all\(Array\.from\(\{ length: Math\.min\(PARALLEL_UPLOADS, queue\.length\) \}/);
+test('transfers to iDeck use four connections and 1 MB blocks', () => {
   const device = fs.readFileSync(path.join(root, 'app/device.js'), 'utf8');
   assert.match(device, /const MAX_DEVICE_SOCKETS = 4;/);
   assert.match(device, /highWaterMark: 1024 \* 1024/);
