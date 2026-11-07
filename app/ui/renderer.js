@@ -82,14 +82,14 @@ function render() {
   $('version').textContent = `v${state.version}`;
   renderDevice();
   renderGate();
-  for (const store of ['steam', 'epic', 'gog']) {
+  for (const store of ['steam', 'epic', 'gog', 'ea', 'ubisoft']) {
     const count = games(store).length;
     $(`count-${store}`).textContent = count ? count : '';
   }
   const active = (state.installs || []).filter((item) => !item.error).length + (state.jobs || []).filter((job) => !job.finished).length;
   $('count-tasks').textContent = active ? active : '';
   $('view-title').textContent = TITLES[view];
-  const library = ['steam', 'epic', 'gog'].includes(view);
+  const library = ['steam', 'epic', 'gog', 'ea', 'ubisoft'].includes(view);
   $('filter').style.visibility = library ? 'visible' : 'hidden';
   $('search').style.visibility = library ? 'visible' : 'hidden';
   $('refresh').style.visibility = library || view.startsWith('bugs-') ? 'visible' : 'hidden';
