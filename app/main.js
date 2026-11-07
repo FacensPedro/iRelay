@@ -9,7 +9,7 @@ const Relay = require('./relay');
 const Processor = require('./process');
 const Settings = require('./settings');
 const { clearUnusedCache } = require('./cache');
-const { targets: launcherTargets, validateWindowsInstaller } = require('./launcher-installers');
+const ubisoft = require('./ubisoft');
 const settings = new Settings(path.join(app.getPath('userData'), 'settings.json'));
 
 const VERSION = (global.irelay && global.irelay.version) || app.getVersion();
@@ -39,7 +39,6 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     installs: [],   // iDeck's own downloads (GET /installs)
     jobs: [],       // Steam downloads this PC processes for iDeck
     dlcQueue: {},   // appId -> DLC to install once the game is on the device
-    launcherUploads: { ea: { phase: 'idle', message: '' }, ubisoft: { phase: 'idle', message: '' } },
   };
   let deviceId = null;
   let relay = null;
@@ -155,12 +154,16 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     }
   }
 
+  // Ubisoft games this PC copies to iDeck (ubisoft.js), shown with iDeck's own installs.
+  const pcCopies = new Map(); // id -> { store, id, title, phase, done, total, error, cancelled }
+  const copyItems = () => [...pcCopies.values()].map(({ cancelled, ...item }) => item);
+
   async function pollInstalls() {
     if (processor) state.jobs = processor.list();
-    if (!deviceId) { state.installs = []; push(); return; }
+    if (!deviceId) { state.installs = copyItems(); push(); return; }
     try {
       const wasActive = state.installs.some((item) => item.phase !== 'failed' && item.phase !== 'paused');
-      state.installs = (await device.installs(deviceId)).installs || [];
+      state.installs = [...((await device.installs(deviceId)).installs || []), ...copyItems()];
       // A download just ended: the library shows it installed.
       if (wasActive && !state.installs.some((item) => item.phase !== 'failed' && item.phase !== 'paused')) await refreshLibrary();
       if (Object.keys(state.dlcQueue).length) await runDLCQueue();
@@ -256,13 +259,46 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     if (!deviceId || loadingLibrary) return;
     loadingLibrary = true;
     try {
-      state.library = await device.library(deviceId);
+      const library = await device.library(deviceId);
+      library.ubisoft = await ubisoftLibrary(library.ubisoft);
+      state.library = library;
       state.libraryError = null;
     } catch (error) {
       state.libraryError = error.message;
     }
     loadingLibrary = false;
     push();
+  }
+
+  /// Games Ubisoft Connect installed on this PC, marked when iDeck already has them.
+  async function ubisoftLibrary(device) {
+    const onDevice = new Map(((device && device.games) || []).map((game) => [String(game.id), game]));
+    const pc = await ubisoft.installedOnPC().catch(() => []);
+    const games = pc.map((game) => ({ id: game.id, title: game.title, cover: '', installed: onDevice.has(game.id),
+      size: onDevice.get(game.id)?.size || 0, pc: true }));
+    for (const [id, game] of onDevice) if (!pc.some((item) => item.id === id)) games.push({ ...game, pc: false });
+    return { signedIn: true, clientInstalled: !!(device && device.clientInstalled), games };
+  }
+
+  async function copyUbisoft(id) {
+    const game = (await ubisoft.installedOnPC()).find((item) => item.id === String(id));
+    if (!game) throw new Error('This game is not installed by Ubisoft Connect on this PC.');
+    if (pcCopies.get(game.id)?.phase === 'copying') throw new Error('This game is already being copied.');
+    const item = { store: 'ubisoft', id: game.id, title: game.title, phase: 'copying', done: 0, total: 1, error: '', cancelled: false };
+    pcCopies.set(game.id, item);
+    log(`ubisoft copy started: ${game.title}`);
+    ubisoft.copyToDevice(device, deviceId, game, {
+      progress: ({ done, total }) => { item.done = done; item.total = total || 1; },
+      cancelled: () => item.cancelled,
+    }).then(async (result) => {
+      pcCopies.delete(game.id);
+      log(`ubisoft copy finished: ${game.title} (${result.files} files, ${result.total} bytes)`);
+      await refreshLibrary();
+    }).catch((error) => {
+      item.phase = 'failed';
+      item.error = error.message;
+      log(`ubisoft copy failed: ${game.title}: ${error.message}`);
+    }).finally(() => pollInstalls());
   }
 
   function every(ms, fn) {
@@ -293,39 +329,6 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     syncPairings();
     await pollCable();
   });
-  ipcMain.handle('uploadLauncherInstaller', async (_event, launcher) => {
-    if (!Object.hasOwn(launcherTargets, launcher)) throw new Error('Unsupported Windows launcher.');
-    if (!deviceId || state.cable.status !== 'connected') throw new Error('Connect to iDeck first.');
-    if (Number(state.cable.device?.protocol || 0) < 4) {
-      throw new Error('Update iDeck to support launcher installer transfers.');
-    }
-    if (state.launcherUploads[launcher]?.phase === 'uploading') {
-      throw new Error('An installer transfer is already in progress.');
-    }
-    const selected = await dialog.showOpenDialog(window, {
-      title: 'Select the official Windows installer',
-      properties: ['openFile'],
-      filters: [{ name: 'Windows executable', extensions: ['exe'] }],
-    });
-    if (selected.canceled || selected.filePaths.length !== 1) return { canceled: true };
-    const local = selected.filePaths[0];
-    const stat = await validateWindowsInstaller(local);
-    state.launcherUploads[launcher] = { phase: 'uploading', message: 'Sending installer to iDeck…' };
-    push();
-    try {
-      await device.upload(deviceId, launcherTargets[launcher].root, launcherTargets[launcher].name, local,
-        stat.size, Math.floor(stat.mtimeMs / 1000));
-      state.launcherUploads[launcher] = { phase: 'transferred', message: 'Transferred. Run this installer from iDeck > Settings > Launchers.' };
-      log(`launcher installer transferred: ${launcher} (${stat.size} bytes)`);
-      return { transferred: true };
-    } catch (error) {
-      state.launcherUploads[launcher] = { phase: 'failed', message: error.message };
-      throw error;
-    } finally {
-      push();
-    }
-  });
-
   ipcMain.handle('setDownloadAcceleration', (_, enabled) => {
     state.settings = settings.setDownloadAcceleration(enabled);
     if (processor) processor.setAccelerated(enabled);
@@ -373,6 +376,8 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
       body.appId = Number(request.appId);
       if (request.dlcId) body.dlcId = Number(request.dlcId);
     } else if (request.store === 'gog') body.id = Number(request.id);
+    else if (request.store === 'ea') body.id = String(request.id || '');
+    else if (request.store === 'ubisoft') { await copyUbisoft(request.id); return; }
     else body.appName = request.appName;
     await device.install(deviceId, body);
     log(`install started on the device: ${request.title || body.appId || body.id || body.appName}`);
@@ -389,12 +394,19 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
       throw new Error('Update iDeck to a version that supports download controls.');
     }
     const { store, action } = control || {};
-    if (!['steam', 'epic', 'gog'].includes(store) ||
+    if (!['steam', 'epic', 'gog', 'ea', 'ubisoft'].includes(store) ||
         !['pause', 'resume', 'stop'].includes(action)) {
       throw new Error('Invalid download control.');
     }
-    const id = store === 'epic' ? String(control.id || '') : Number(control.id);
-    if ((store === 'epic' && !id) || (store !== 'epic' && !Number.isSafeInteger(id))) {
+    if (store === 'ubisoft') {
+      const copy = pcCopies.get(String(control.id));
+      if (copy && action === 'stop') { copy.cancelled = true; pcCopies.delete(String(control.id)); }
+      await pollInstalls();
+      return;
+    }
+    const textID = store === 'epic' || store === 'ea';
+    const id = textID ? String(control.id || '') : Number(control.id);
+    if ((textID && !id) || (!textID && !Number.isSafeInteger(id))) {
       throw new Error('Invalid game ID.');
     }
     if (action === 'stop' && store === 'steam' && processor) {
