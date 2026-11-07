@@ -2,8 +2,8 @@
 // Games Ubisoft Connect installed on this PC, and copying one into iDeck.
 // Ubisoft Connect records each install under
 //   HKLM\SOFTWARE\WOW6432Node\Ubisoft\Launcher\Installs\<id>  InstallDir
-// iDeck receives the folder under its Ubisoft games root and starts the game
-// through Ubisoft Connect (uplay://launch/<id>/0), which checks the licence.
+// iDeck receives the folder under its Ubisoft games root and starts the game's
+// own executable, or Ubisoft Connect (uplay://launch/<id>/0) when installed there.
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
@@ -74,6 +74,8 @@ function* walk(folder, base = folder) {
   }
 }
 
+const PARALLEL_UPLOADS = 4;
+
 /// Copies one game: only files iDeck lacks or that differ in size or time, then
 /// the install record. `progress({ done, total })` follows copied bytes.
 async function copyToDevice(device, deviceId, game, { progress = () => {}, cancelled = () => false } = {}) {
@@ -86,15 +88,21 @@ async function copyToDevice(device, deviceId, game, { progress = () => {}, cance
     existing = new Map((listing.files || []).map((file) => [file.p, file]));
   } catch { /* a first copy: nothing there yet */ }
   let done = 0;
-  for (const file of files) {
-    if (cancelled()) throw new Error('Transfer stopped');
-    const there = existing.get(file.relative);
-    if (!there || there.s !== file.size || Math.abs((there.m || 0) - file.mtime) > 2) {
-      await device.upload(deviceId, root, file.relative, file.local, file.size, file.mtime);
+  // Several files at once: small files no longer wait for one round trip
+  // each, and the device's connection pool bounds the total.
+  const queue = [...files];
+  await Promise.all(Array.from({ length: Math.min(PARALLEL_UPLOADS, queue.length) }, async () => {
+    while (queue.length) {
+      if (cancelled()) throw new Error('Transfer stopped');
+      const file = queue.shift();
+      const there = existing.get(file.relative);
+      if (!there || there.s !== file.size || Math.abs((there.m || 0) - file.mtime) > 2) {
+        await device.upload(deviceId, root, file.relative, file.local, file.size, file.mtime);
+      }
+      done += file.size;
+      progress({ done, total });
     }
-    done += file.size;
-    progress({ done, total });
-  }
+  }));
   await device.finish(deviceId, { store: 'ubisoft', id: game.id, title: game.title, folder: root, size: total });
   return { root, total, files: files.length };
 }

@@ -11,7 +11,7 @@ const device = require('../app/device');
 const root = path.join(__dirname, '..');
 const read = (pathName) => fs.readFileSync(path.join(root, pathName), 'utf8');
 
-test('Network requests cap at two simultaneous requests on a healthy connected iPad', async () => {
+test('Network requests cap at four simultaneous requests on a healthy connected iPad', async () => {
   const original = lan.connect;
   const server = http.createServer();
   let active = 0;
@@ -49,7 +49,7 @@ test('Network requests cap at two simultaneous requests on a healthy connected i
         4096, 'b'.repeat(40), Buffer.alloc(64, i)));
     const results = await Promise.all(requests);
     assert.ok(results.every((value) => value.ok));
-    assert.ok(peak > 0 && peak <= 2, 'healthy USB transfer should use at most two concurrent connections');
+    assert.ok(peak > 2 && peak <= 4, 'a healthy transfer uses up to four concurrent connections; peak=' + peak);
     assert.match(read('app/device.js'), /RECOVERY_COOLDOWN_MS = 60000/);
     assert.match(read('app/device.js'), /RAMP_SUCCESS_COUNT = 32/);
   } finally {

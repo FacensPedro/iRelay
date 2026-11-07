@@ -204,9 +204,9 @@ function renderLibrary() {
     return;
   }
   // Ubisoft: games Ubisoft Connect installed on this PC, copied to iDeck and
-  // started there through Ubisoft Connect.
+  // started there directly (through Ubisoft Connect when iDeck has it).
   const ubisoftNote = store === 'ubisoft'
-    ? `<p class="note library-note">Games installed by Ubisoft Connect on this PC. Install on device copies the game to iDeck; it starts there through Ubisoft Connect${library.clientInstalled ? '' : ' (install it in iDeck › Settings › Ubisoft Connect)'}.</p>`
+    ? `<p class="note library-note">Games installed by Ubisoft Connect on this PC. Install on device copies the game to iDeck, where it starts directly.</p>`
     : '';
   let list = games(store);
   if (filter === 'pc') list = list.filter((game) => game.download);
