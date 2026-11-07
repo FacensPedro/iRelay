@@ -13,7 +13,9 @@ const http = require('http');
 // Avoid four simultaneous decompressed uploads on an iPad already doing
 // file allocation, SHA-1 verification and a large Steam install.
 // Bandwidth is still unrestricted; only outstanding device writes are bounded.
-const MAX_DEVICE_SOCKETS = 2;
+// Four keep the iPad's receive path busy (one connection stalls while iDeck
+// verifies and writes a chunk) without the burst that eight caused.
+const MAX_DEVICE_SOCKETS = 4;
 const RECOVERY_COOLDOWN_MS = 60000;
 const RAMP_SUCCESS_COUNT = 32;
 const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
@@ -185,7 +187,7 @@ async function request(deviceId, method, path, { json, file, size, data, timeout
     if (file) {
       // Stream directly to the socket using HTTP backpressure; there is
       // no multi-megabyte buffer or per-chunk Buffer.concat in JavaScript.
-      const stream = fs.createReadStream(file, { highWaterMark: 256 * 1024 });
+      const stream = fs.createReadStream(file, { highWaterMark: 1024 * 1024 });
       stream.once('error', (error) => req.destroy(error));
       req.once('close', () => stream.destroy());
       stream.pipe(req);
